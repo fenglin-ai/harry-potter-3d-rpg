@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>哈利·波特与魔法石 · 角色扮演冒险</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- 标题画面 -->
+<div id="titleScreen">
+  <div class="title-box">
+    <div class="title-deco">✦ ✦ ✦</div>
+    <h1 class="title-main">哈利·波特<br>与魔法石</h1>
+    <p class="title-sub">角色扮演冒险 · 3D 立体世界</p>
+    <p class="title-story">女贞路的一封神秘来信，将把你带向霍格沃茨——
+      去对角巷买魔杖，在分院帽下聆听命运，穿过三头犬把守的地下走廊，
+      阻止奇洛教授盗走魔法石。</p>
+    <div class="title-btns">
+      <button id="btnNew" class="btn-primary">开始新冒险</button>
+      <button id="btnContinue" class="btn-secondary" style="display:none">继续冒险</button>
+    </div>
+    <p class="title-tip">WASD / 方向键移动 · E / 空格 互动 · Q / R 旋转视角（每次 30°） · 鼠标拖拽环视 · 滚轮缩放</p>
+    <div class="title-keys">
+      <div class="tk-col">
+        <div class="tk-row"><span class="tk-k"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span class="tk-d">移动（方向随视角）</span></div>
+        <div class="tk-row"><span class="tk-k"><kbd>E</kbd><kbd>空格</kbd></span><span class="tk-d">互动 / 推进对话</span></div>
+        <div class="tk-row"><span class="tk-k"><kbd>Q</kbd><kbd>R</kbd></span><span class="tk-d">旋转视角（每次 30°）</span></div>
+        <div class="tk-row"><span class="tk-k"><kbd>拖拽</kbd><kbd>滚轮</kbd></span><span class="tk-d">自由环视 / 缩放</span></div>
+      </div>
+      <div class="tk-col">
+        <div class="tk-row"><span class="tk-k"><kbd>T</kbd></span><span class="tk-d">任务指引</span></div>
+        <div class="tk-row"><span class="tk-k"><kbd>B</kbd></span><span class="tk-d">背包</span></div>
+        <div class="tk-row"><span class="tk-k"><kbd>M</kbd></span><span class="tk-d">小地图开关</span></div>
+        <div class="tk-row"><span class="tk-k"><kbd>H</kbd></span><span class="tk-d">本说明</span></div>
+        <div class="tk-row"><span class="tk-k"><kbd>Esc</kbd></span><span class="tk-d">关闭面板 / 跳过小游戏</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 游戏画面 -->
+<div id="gameWrap" style="display:none">
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hud-left">
+      <span class="hud-name">⚡ 哈利·波特</span>
+      <div class="hp-row"><span class="hp-label">HP</span>
+        <div class="hp-bar"><div id="hpFill"></div></div>
+        <span id="hpText">100/100</span>
+      </div>
+      <div class="stat-row">
+        <span id="hudPoints" class="hud-chip">🏆 学院分 0</span>
+        <span id="hudGold" class="hud-chip">🪙 0</span>
+        <span id="hudWand" class="hud-chip"></span>
+      </div>
+    </div>
+    <div class="hud-right">
+      <div class="hud-btns">
+        <button id="btnTasks" class="hud-btn" title="任务指引（按 T）">📜<span class="btn-label">任务</span></button>
+        <button id="btnBag" class="hud-btn" title="背包（按 B）">🎒<span class="btn-label">背包</span></button>
+        <button id="btnRotL" class="hud-btn" title="逆时针旋转视角 30°（按 Q）">⟲</button>
+        <button id="btnRotR" class="hud-btn" title="顺时针旋转视角 30°（按 R）">⟳</button>
+        <button id="btnMap" class="hud-btn" title="小地图开关（按 M）">🗺️</button>
+        <button id="btnHelp" class="hud-btn" title="操作说明（按 H）">❓<span class="btn-label">说明</span></button>
+        <button id="btnSound" class="hud-btn" title="声音开关">🔊</button>
+      </div>
+      <div id="hudSpells" class="spells"></div>
+      <div id="hudItems" class="items" title="背包（点击打开）"></div>
+    </div>
+  </div>
+
+  <!-- 小地图 -->
+  <div id="miniMapBox">
+    <canvas id="minimap"></canvas>
+    <div id="miniMapName"></div>
+    <div id="miniMapHint">M 关闭</div>
+  </div>
+
+  <!-- 当前场景名称 -->
+  <div id="mapNameBox"><span id="mapName"></span></div>
+
+  <!-- 任务提示 -->
+  <div id="hintBox"><span id="hintLabel">✦ 任务指引</span><span id="hintText"></span></div>
+
+  <!-- 对话层 -->
+  <div id="dialog" style="display:none">
+    <div class="dialog-head"><span id="dIcon"></span><span id="dName"></span></div>
+    <div id="dText" class="dialog-text"></div>
+    <div id="dChoices" class="dialog-choices"></div>
+  </div>
+
+  <!-- 迷你游戏层 -->
+  <div id="mini" style="display:none">
+    <div id="miniBody"></div>
+  </div>
+
+  <!-- 提示浮层 -->
+  <div id="toast" style="display:none"></div>
+
+  <!-- 任务指引面板 -->
+  <div id="panelTasks" class="panel" style="display:none">
+    <div class="panel-box">
+      <div class="panel-head">📜 任务指引 <button class="panel-close" data-panel="panelTasks">✕</button></div>
+      <div class="panel-body">
+        <div id="questMap" class="quest-map"></div>
+        <div class="quest-now">
+          <div class="quest-label">▸ 当前目标</div>
+          <div id="questNow"></div>
+        </div>
+        <div class="quest-list-label">冒险进度</div>
+        <div id="questList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 背包面板 -->
+  <div id="panelBag" class="panel" style="display:none">
+    <div class="panel-box">
+      <div class="panel-head">🎒 背包 <button class="panel-close" data-panel="panelBag">✕</button></div>
+      <div class="panel-body">
+        <div id="bagStats"></div>
+        <div id="bagWands"></div>
+        <div id="bagItems"></div>
+        <div id="bagSpells"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 操作说明 -->
+  <div id="panelHelp" class="panel" style="display:none">
+    <div class="panel-box">
+      <div class="panel-head">⌨️ 操作说明 <button class="panel-close" data-panel="panelHelp">✕</button></div>
+      <div class="panel-body" id="helpBody"></div>
+    </div>
+  </div>
+
+  <!-- 触屏控制 -->
+  <div id="touchControls" style="display:none">
+    <div class="dpad">
+      <button class="dbtn" data-dir="up">▲</button>
+      <button class="dbtn" data-dir="left">◀</button>
+      <button class="dbtn" data-dir="down">▼</button>
+      <button class="dbtn" data-dir="right">▶</button>
+    </div>
+    <button class="abtn" id="touchA">互动<br>E</button>
+  </div>
+</div>
+
+  <!-- 结算画面 -->
+  <div id="credits" style="display:none">
+    <canvas id="fxCanvas"></canvas>
+    <div class="title-box ending-box">
+      <div class="ending-badge">🎉 恭喜通关 🎉</div>
+      <h2 class="title-main">第一学年 · 圆满结束</h2>
+      <p class="ending-sub">你保护了魔法石，格兰芬多捧起了学院杯！</p>
+      <div id="creditsBody"></div>
+      <div class="title-btns">
+        <button id="btnAgain" class="btn-primary">再玩一次</button>
+      </div>
+    </div>
+  </div>
+
+<script src="js/vendor/three.min.js"></script>
+<script src="js/render3d.js"></script>
+<script src="js/data.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>

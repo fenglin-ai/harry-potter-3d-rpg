@@ -1,0 +1,11 @@
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+*.swp
+
+# 本地缓存与工作区数据
+.workbuddy/
+node_modules/
+
+# 调试临时文件（以 __ 开头的临时探针页）
+__*.html

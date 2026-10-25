@@ -1,0 +1,417 @@
+/* ============ 哈利·波特与魔法石 · RPG ============ */
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body {
+  background: #0b0f1a;
+  font-family: Georgia, "Songti SC", "SimSun", serif;
+  color: #f4e9d0;
+  user-select: none;
+}
+
+/* ---------- 标题 / 结算 ---------- */
+#titleScreen, #credits {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(ellipse at 50% 20%, rgba(80, 60, 20, .45), transparent 60%),
+    linear-gradient(180deg, #0d1120 0%, #1a1420 55%, #241430 100%);
+}
+#credits { background:
+    radial-gradient(ellipse at 50% 20%, rgba(120, 90, 30, .5), transparent 60%),
+    linear-gradient(180deg, #0d0f18 0%, #201620 55%, #2a1a2e 100%); }
+.title-box {
+  max-width: 640px; width: 92%; text-align: center; padding: 34px 30px;
+  background: rgba(20, 16, 30, .72);
+  border: 1px solid #8a6d3b;
+  border-radius: 12px;
+  box-shadow: 0 0 40px rgba(150, 110, 40, .25), inset 0 0 60px rgba(0,0,0,.5);
+}
+.title-deco { color: #d4af37; letter-spacing: 8px; font-size: 18px; margin-bottom: 8px; }
+.title-main {
+  font-size: 46px; line-height: 1.25;
+  background: linear-gradient(180deg, #f6e27a, #c9a227);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: 0 2px 8px rgba(0,0,0,.6);
+}
+.title-sub { margin: 12px 0 6px; color: #d8c48a; letter-spacing: 3px; font-size: 15px; }
+.title-story { margin: 14px auto; color: #cfc6ac; font-size: 14px; line-height: 1.9; max-width: 460px; }
+.title-btns { margin-top: 22px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.btn-primary, .btn-secondary {
+  font-family: inherit; font-size: 17px; letter-spacing: 2px;
+  padding: 12px 34px; border-radius: 8px; cursor: pointer;
+  border: 1px solid #c9a227; color: #1c1408; background: linear-gradient(180deg, #f6d86a, #c9a227);
+  box-shadow: 0 4px 14px rgba(0,0,0,.4); transition: transform .12s, filter .12s;
+}
+.btn-primary:hover { transform: translateY(-2px); filter: brightness(1.08); }
+.btn-secondary { background: linear-gradient(180deg, #8a6d3b, #5f4a26); color: #f4e9d0; }
+.title-tip { margin-top: 18px; font-size: 12px; color: #8f86a0; letter-spacing: 1px; }
+
+/* ---------- 通关庆祝 ---------- */
+#fxCanvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 1;
+}
+#credits .ending-box {
+  position: relative; z-index: 2; max-width: 760px; width: 92%;
+  max-height: 92vh; overflow: auto;
+  border-color: #d4af37;
+  box-shadow: 0 0 70px rgba(212, 175, 55, .35), inset 0 0 70px rgba(0,0,0,.55);
+}
+.ending-badge {
+  display: inline-block; font-size: 14px; font-weight: bold; letter-spacing: 4px;
+  color: #1c1408; background: linear-gradient(180deg, #f6e27a, #c9a227);
+  border-radius: 20px; padding: 6px 20px; margin-bottom: 12px;
+  animation: badgePop 1.3s ease-in-out infinite alternate;
+}
+@keyframes badgePop { from { transform: scale(1); } to { transform: scale(1.06); } }
+.ending-sub { margin: 8px 0 6px; color: #ffd76a; font-size: 15px; letter-spacing: 2px; }
+.ending-story {
+  text-align: left; color: #cfc6ac; font-size: 13.5px; line-height: 2;
+  margin: 14px 0 16px;
+}
+.ending-story b { color: #ffd76a; }
+.ending-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 4px 0 16px;
+}
+.es {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 10px 6px; border-radius: 10px;
+  background: rgba(0,0,0,.35); border: 1px solid #5f4a26;
+}
+.esi { font-size: 20px; }
+.esv { font-size: 22px; color: #ffd76a; font-weight: bold; }
+.esv.small { font-size: 12px; line-height: 1.7; }
+.esl { font-size: 11px; color: #b0a488; letter-spacing: 1px; }
+.ending-epilogue { color: #b0a488; font-size: 13px; line-height: 1.9; margin: 0 0 10px; }
+.ending-thanks {
+  color: #ffd76a; font-size: 14px; letter-spacing: 2px; margin-top: 6px;
+  animation: thanksGlow 1.8s ease-in-out infinite alternate;
+}
+@keyframes thanksGlow {
+  from { opacity: .7; }
+  to { opacity: 1; text-shadow: 0 0 16px rgba(255, 215, 106, .65); }
+}
+
+/* ---------- 游戏画面 ---------- */
+#gameWrap { position: fixed; inset: 0; background: #05070d; }
+#game { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+/* ---------- HUD ---------- */
+#hud {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 8px 12px; pointer-events: none;
+}
+.hud-left { display: flex; flex-direction: column; gap: 4px; }
+.hud-name { font-size: 15px; font-weight: bold; color: #ffe9a8; text-shadow: 0 1px 3px #000; }
+.hp-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.hp-label { color: #ff9d8a; }
+.hp-bar { width: 120px; height: 12px; background: #2a1620; border: 1px solid #7a3040; border-radius: 6px; overflow: hidden; }
+#hpFill { height: 100%; width: 100%; background: linear-gradient(90deg, #ff5d5d, #ffb03a); transition: width .3s; }
+.stat-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.hud-chip { font-size: 12px; background: rgba(0,0,0,.45); border: 1px solid #5f4a26; padding: 2px 8px; border-radius: 10px; }
+.hud-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.spells { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.hud-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.hud-btn {
+  font-family: inherit; font-size: 16px; cursor: pointer; pointer-events: auto;
+  background: rgba(0,0,0,.45); border: 1px solid #5f4a26; border-radius: 8px;
+  color: #ffe9a8; padding: 3px 8px; display: flex; align-items: center; gap: 3px;
+  line-height: 1.2;
+}
+.hud-btn .btn-label { font-size: 11px; letter-spacing: 1px; }
+.hud-btn:hover { filter: brightness(1.25); }
+.spell-chip {
+  font-size: 11px; padding: 3px 9px; border-radius: 10px;
+  background: rgba(20, 30, 60, .6); border: 1px solid #3a5a8a; color: #bfe3ff;
+}
+.items { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 340px; }
+.item-chip {
+  font-size: 17px; padding: 3px 7px; border-radius: 8px;
+  background: rgba(0,0,0,.45); border: 1px solid #5f4a26; cursor: pointer;
+}
+.item-chip:hover { filter: brightness(1.2); }
+
+/* ---------- 当前场景名称 ---------- */
+#mapNameBox {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  z-index: 11; pointer-events: none; text-align: center;
+}
+#mapName {
+  display: inline-block; font-size: 13px; letter-spacing: 3px; color: #ffe9a8;
+  background: rgba(10, 10, 20, .62); border: 1px solid #5f4a26; border-radius: 12px;
+  padding: 4px 16px; text-shadow: 0 1px 3px #000;
+}
+#mapName.flash { animation: mapNameIn 2.6s ease-out; }
+@keyframes mapNameIn {
+  0%   { transform: scale(.82); opacity: 0; color: #fff; }
+  14%  { transform: scale(1.06); opacity: 1; color: #fff; }
+  60%  { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1); opacity: .88; }
+}
+
+/* ---------- 任务提示 ---------- */
+#hintBox {
+  position: absolute; bottom: 86px; left: 50%; transform: translateX(-50%); z-index: 10;
+  max-width: 640px; width: 88%; text-align: center; pointer-events: none;
+}
+#hintText {
+  display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #ffe9a8;
+  background: rgba(10, 10, 20, .62); border: 1px solid #5f4a26; border-radius: 10px;
+  padding: 6px 14px; letter-spacing: 1px; line-height: 1.6;
+}
+#hintLabel { color: #ffd76a; font-weight: bold; letter-spacing: 1px; }
+
+/* ---------- 对话 ---------- */
+#dialog {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 20;
+  width: min(680px, 94%); background: rgba(16, 12, 26, .94);
+  border: 1px solid #8a6d3b; border-radius: 12px;
+  padding: 12px 16px 14px; box-shadow: 0 6px 30px rgba(0,0,0,.6);
+}
+.dialog-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+#dIcon { font-size: 24px; }
+#dName { font-size: 15px; color: #ffe9a8; font-weight: bold; letter-spacing: 1px; }
+.dialog-text { font-size: 15px; line-height: 1.8; min-height: 44px; color: #f2ecd9; }
+.dialog-choices { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.choice-btn {
+  font-family: inherit; font-size: 14px; text-align: left; cursor: pointer;
+  padding: 9px 14px; border-radius: 8px; color: #ffe9a8;
+  background: rgba(40, 30, 60, .8); border: 1px solid #6a4f2e;
+  transition: background .12s, transform .1s;
+}
+.choice-btn:hover { background: rgba(70, 50, 90, .9); transform: translateX(3px); }
+.choice-btn small { display: block; color: #b0a488; margin-top: 2px; }
+
+/* ---------- 迷你游戏 ---------- */
+#mini {
+  position: absolute; inset: 0; z-index: 30;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(4, 6, 12, .72);
+}
+#miniBody {
+  width: min(620px, 92%); max-height: 88vh; overflow: auto;
+  background: rgba(18, 14, 30, .97); border: 1px solid #8a6d3b; border-radius: 12px;
+  padding: 18px 20px; box-shadow: 0 8px 40px rgba(0,0,0,.7); text-align: center;
+}
+#miniBody h3 { color: #ffe9a8; letter-spacing: 2px; margin-bottom: 10px; font-size: 18px; }
+.mini-desc { color: #cfc6ac; font-size: 14px; line-height: 1.8; margin-bottom: 12px; }
+.mini-btn {
+  font-family: inherit; font-size: 14px; cursor: pointer; margin: 6px;
+  padding: 10px 22px; border-radius: 8px; color: #1c1408;
+  background: linear-gradient(180deg, #f6d86a, #c9a227); border: 1px solid #c9a227;
+  transition: transform .1s;
+}
+.mini-btn:hover { transform: translateY(-2px); }
+.mini-btn.secondary { background: linear-gradient(180deg, #8a6d3b, #5f4a26); color: #f4e9d0; }
+.mini-status { margin: 10px 0; font-size: 14px; color: #ffd76a; min-height: 20px; }
+.mini-hp { margin-top: 8px; font-size: 12px; color: #ff9d8a; }
+
+/* 魁地奇 / 钥匙 画布 */
+#miniCanvas { background: #0c1428; border: 1px solid #3a5a8a; border-radius: 10px; cursor: crosshair; }
+
+/* 魔药瓶 */
+.potion-row { display: flex; justify-content: center; gap: 10px; margin: 14px 0; flex-wrap: wrap; }
+.potion {
+  width: 52px; height: 76px; cursor: pointer; position: relative;
+  background: rgba(255,255,255,.06); border: 1px solid #6a5a3a; border-radius: 8px 8px 14px 14px;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  padding-bottom: 6px; transition: transform .1s;
+}
+.potion:hover { transform: scale(1.08); }
+.potion .p-liquid { width: 34px; height: 40px; border-radius: 4px 4px 10px 10px; margin-top: 8px; }
+.potion .p-label { font-size: 10px; color: #cfc6ac; margin-top: 4px; }
+
+/* 巫师棋棋盘 */
+.chess-board { display: grid; grid-template-columns: repeat(8, 40px); gap: 1px; justify-content: center; margin: 12px auto; }
+.chess-cell { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+.chess-cell.light { background: #c8b28a; }
+.chess-cell.dark { background: #6a4a2e; }
+.chess-cell.hl { outline: 3px solid #ffd76a; }
+
+/* 飞行钥匙 */
+.key-box { position: relative; width: 100%; height: 240px; background: rgba(0,0,0,.35); border: 1px solid #3a5a8a; border-radius: 10px; overflow: hidden; margin: 10px 0; }
+.fkey {
+  position: absolute; font-size: 30px; cursor: pointer; transition: none;
+  filter: drop-shadow(0 0 6px rgba(255,215,106,.6));
+}
+.fkey.wrong { filter: grayscale(.8) drop-shadow(0 0 4px rgba(255,80,80,.8)); }
+
+/* 节奏圆环 */
+.ring-stage { position: relative; width: 160px; height: 160px; margin: 14px auto; }
+.ring-outer { position: absolute; inset: 0; border: 3px solid #3a5a8a; border-radius: 50%; }
+.ring-inner {
+  position: absolute; inset: 44px; border: 3px solid #ffd76a; border-radius: 50%;
+  transition: transform .12s;
+}
+.ring-pulse { position: absolute; inset: 0; border: 3px solid #ff9d8a; border-radius: 50%; animation: pulse 1.1s infinite; }
+@keyframes pulse { 0% { transform: scale(.5); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
+
+/* 魔咒条 */
+.lev-bar { width: 100%; height: 30px; background: #0c1428; border: 1px solid #3a5a8a; border-radius: 15px; position: relative; margin: 14px 0; overflow: hidden; }
+.lev-zone { position: absolute; top: 0; height: 100%; background: rgba(255, 215, 106, .28); border-left: 2px solid #ffd76a; border-right: 2px solid #ffd76a; }
+.lev-marker { position: absolute; top: 0; height: 100%; width: 6px; background: #ff6a6a; border-radius: 3px; }
+
+/* 决斗 */
+.duel-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 12px 0; }
+.duel-unit { flex: 1; text-align: left; }
+.duel-unit h4 { font-size: 14px; color: #ffe9a8; margin-bottom: 4px; }
+.duel-hp { height: 14px; background: #2a1620; border: 1px solid #7a3040; border-radius: 7px; overflow: hidden; }
+.duel-hp .fill { height: 100%; background: linear-gradient(90deg, #ff5d5d, #ffb03a); transition: width .3s; }
+.duel-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+
+/* ---------- 提示浮层 ---------- */
+#toast {
+  position: absolute; top: 70px; left: 50%; transform: translateX(-50%); z-index: 40;
+  background: rgba(10,10,20,.85); border: 1px solid #8a6d3b; border-radius: 10px;
+  color: #ffe9a8; padding: 8px 18px; font-size: 14px; display: none;
+}
+
+/* ---------- 标题页快捷键 ---------- */
+.title-keys {
+  margin: 16px auto 0; display: flex; gap: 10px 28px; justify-content: center; flex-wrap: wrap;
+  font-size: 12px; color: #b0a488;
+}
+/* 每列内部用 grid：左列按键、右列说明，各自对齐成两条竖线 */
+.tk-col { display: grid; grid-template-columns: auto 1fr; gap: 7px 10px; align-items: center; text-align: left; }
+.tk-row { display: contents; }
+.tk-k { display: flex; gap: 4px; }
+.tk-d { color: #b0a488; white-space: nowrap; }
+kbd {
+  display: inline-block; min-width: 20px; padding: 1px 6px; font-family: inherit; font-size: 11px;
+  color: #ffe9a8; background: rgba(255,255,255,.07); border: 1px solid #6a5a3a;
+  border-bottom-width: 2px; border-radius: 4px; text-align: center;
+}
+
+/* ---------- 小地图 ---------- */
+#miniMapBox {
+  position: absolute; right: 12px; bottom: 12px; z-index: 14;
+  padding: 6px 6px 22px;
+  background: rgba(10, 12, 22, .72); border: 1px solid #8a6d3b; border-radius: 10px;
+  box-shadow: 0 4px 18px rgba(0,0,0,.55); pointer-events: none;
+}
+#miniMapBox.hide { display: none; }
+#minimap { display: block; border-radius: 6px; }
+#miniMapName {
+  position: absolute; left: 8px; bottom: 4px; font-size: 11px; color: #ffe9a8;
+  letter-spacing: 1px; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden;
+  max-width: 118px; text-overflow: ellipsis;
+}
+#miniMapHint {
+  position: absolute; right: 8px; bottom: 4px; font-size: 10px; color: #8f86a0; letter-spacing: 1px;
+}
+
+/* ---------- 操作说明面板 ---------- */
+.help-sec { font-size: 13px; color: #d8c48a; letter-spacing: 2px; margin: 14px 0 6px; }
+.help-sec:first-child { margin-top: 0; }
+.help-grid { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; align-items: center; }
+.help-keys { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.help-desc { font-size: 13px; color: #cfc6ac; line-height: 1.6; }
+.help-note {
+  margin-top: 14px; font-size: 12px; color: #8f86a0; line-height: 1.8;
+  border-top: 1px solid rgba(143,109,59,.28); padding-top: 10px;
+}
+.help-note b { color: #ffd76a; font-weight: normal; }
+
+@media (max-width: 760px) {
+  /* 手机：小地图下移一点，给顶部的场景名标签让位 */
+  #miniMapBox {
+    left: 8px; right: auto; top: 112px; bottom: auto;
+    transform: scale(.76); transform-origin: top left;
+  }
+  #miniMapName { max-width: 92px; }
+  #miniMapHint { display: none; }
+
+  /* 手机：场景名标签从正中沉到 HUD 下方，避免压住血条与右侧按钮 */
+  #mapNameBox { top: 78px; }
+  #mapName { font-size: 12px; letter-spacing: 2px; padding: 3px 12px; }
+
+  /* 手机：快捷键两列在窄屏并排放不下，改成上下两段，且让按键列对齐同一个左边线 */
+  .title-keys { flex-direction: column; align-items: center; gap: 12px; }
+  .tk-col { grid-template-columns: 7.2em max-content; gap: 6px 8px; }
+  .tk-d { font-size: 11.5px; }
+
+  /* 手机：HUD 收缩，7 个按钮在窄屏也能放完不溢出 */
+  #hud { padding: 6px 8px; }
+  .hud-left { font-size: 12px; gap: 3px; }
+  .hud-name { font-size: 13px; }
+  .hp-bar { width: 96px; }
+  .hud-btns { gap: 4px; flex-wrap: wrap; }
+  .hud-btn { font-size: 15px; padding: 3px 6px; }
+  .hud-btn .btn-label { display: none; }   /* 只留图标，title 长按可见说明 */
+  .spells { font-size: 12px; }
+  .items { max-width: 180px; }
+  .item-chip { font-size: 12px; padding: 1px 6px; }
+}
+
+/* ---------- 任务 / 背包 面板 ---------- */
+.panel {
+  position: absolute; inset: 0; z-index: 45; display: flex; align-items: center; justify-content: center;
+  background: rgba(4, 6, 12, .55);
+}
+.panel-box {
+  width: min(560px, 92%); max-height: 86vh; overflow: auto;
+  background: rgba(18, 14, 30, .97); border: 1px solid #8a6d3b; border-radius: 12px;
+  padding: 16px 20px; box-shadow: 0 8px 40px rgba(0,0,0,.7);
+}
+.panel-head {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 17px; color: #ffe9a8; letter-spacing: 2px; margin-bottom: 12px;
+}
+.panel-close {
+  font-family: inherit; font-size: 14px; cursor: pointer; width: 26px; height: 26px; line-height: 1;
+  background: rgba(255,255,255,.08); border: 1px solid #6a5a3a; color: #ffe9a8; border-radius: 6px;
+}
+.panel-close:hover { filter: brightness(1.3); }
+.quest-map {
+  display: inline-block; font-size: 12px; letter-spacing: 3px; color: #ffe9a8;
+  background: rgba(0,0,0,.4); border: 1px solid #5f4a26; border-radius: 10px;
+  padding: 2px 12px; margin-bottom: 8px;
+}
+.quest-now { border: 1px solid #6a4f2e; border-radius: 10px; padding: 10px 14px; background: rgba(40, 30, 60, .35); }
+.quest-label { font-size: 12px; color: #b0a488; letter-spacing: 1px; margin-bottom: 4px; }
+#questNow { font-size: 15px; line-height: 1.7; color: #ffd76a; }
+.quest-list-label { font-size: 13px; color: #b0a488; margin: 14px 0 6px; letter-spacing: 2px; }
+.quest-item { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.7; padding: 4px 0; color: #cfc6ac; }
+.quest-item.done { color: #8fb08f; }
+.quest-item.current { color: #ffd76a; }
+.quest-mark { width: 18px; text-align: center; flex: none; }
+#bagStats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.bag-stat { font-size: 12px; background: rgba(0,0,0,.4); border: 1px solid #5f4a26; padding: 3px 10px; border-radius: 10px; color: #ffe9a8; }
+.bag-sec { font-size: 13px; color: #d8c48a; letter-spacing: 2px; margin: 12px 0 6px; }
+.bag-item { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid rgba(143,109,59,.22); }
+.bag-item:last-child { border-bottom: none; }
+.bag-item .bi { font-size: 20px; width: 28px; text-align: center; flex: none; }
+.bag-item .bn { font-size: 14px; color: #ffe9a8; }
+.bag-item .bd { font-size: 12px; color: #b0a488; margin-top: 2px; line-height: 1.5; }
+.bag-empty { color: #8f86a0; font-size: 13px; padding: 6px 0; }
+
+/* 魔杖切换 */
+.wand-row { display: flex; flex-direction: column; gap: 8px; }
+.wand-card {
+  font-family: inherit; text-align: left; cursor: pointer; width: 100%;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 12px; border-radius: 10px;
+  background: rgba(30, 24, 45, .8); border: 1px solid #5f4a26; color: #cfc6ac;
+}
+.wand-card:hover { filter: brightness(1.18); }
+.wand-card .wn { font-size: 14px; color: #ffe9a8; }
+.wand-card .wd { font-size: 12px; color: #b0a488; }
+.wand-card .wt { font-size: 11px; color: #8f86a0; letter-spacing: 1px; }
+.wand-card.owned { border-color: #6a7a4a; }
+.wand-card.equipped { border-color: #ffd76a; background: rgba(70, 55, 20, .55); box-shadow: 0 0 12px rgba(255, 215, 106, .18); }
+.wand-card.equipped .wt { color: #ffd76a; }
+.wand-card.locked .wn { color: #a99f88; }
+
+/* ---------- 触屏 ---------- */
+#touchControls { position: absolute; inset: 0; z-index: 15; pointer-events: none; }
+#touchControls .dpad { position: absolute; left: 14px; bottom: 110px; display: grid; grid-template-columns: repeat(3, 46px); gap: 4px; pointer-events: auto; }
+#touchControls .dbtn { width: 46px; height: 46px; font-size: 18px; border-radius: 10px; background: rgba(20,20,40,.55); border: 1px solid #5f4a26; color: #ffe9a8; }
+#touchControls .abtn { position: absolute; right: 18px; bottom: 130px; width: 64px; height: 64px; border-radius: 50%; font-size: 13px; background: rgba(60,40,20,.7); border: 2px solid #c9a227; color: #ffe9a8; pointer-events: auto; }
+
+@media (max-width: 720px) {
+  .title-main { font-size: 34px; }
+  #hudItems { max-width: 200px; }
+  .ending-stats { grid-template-columns: repeat(2, 1fr); }
+  .ending-story { font-size: 12.5px; }
+}
