@@ -10,6 +10,8 @@
 **没有任何美术资源** —— 场景、角色、道具全部由代码程序化生成，音效用 Web Audio API 实时合成。
 整个项目就是 `index.html` + 三个 JS 文件，拉下来双击就能玩。
 
+🎮 **在线试玩**：https://fenglin-ai.github.io/harry-potter-3d-rpg/
+
 ---
 
 ## ✨ 特性
