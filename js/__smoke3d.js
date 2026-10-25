@@ -496,6 +496,69 @@ ok(moundTops > 0, '每个树坑都补了土丘（' + moundTops + ' 个盖心顶�
 ok(tallest > 70, '树比人高得多（最高 ' + tallest.toFixed(1) + '，人物身高 ' + harryRig2.height.toFixed(1) + '）');
 doTeleport('privet');
 
+/* ---------------- 8. 场景亮度：暗图也要看得见 ----------------
+ * 「看不见」有两种成因：灯太弱，或者物体本身固有色被压成近黑（加灯也没用）。
+ * 两条都要卡住，只卡一条会漏。 */
+section('场景亮度：暗图看得见，亮图不过曝');
+function lum(c) { return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b; }
+function tileLum(id) {
+  doTeleport(id);
+  const m = biggestMesh();
+  if (!m || !m.geometry.attributes.color) return 0;
+  const col = m.geometry.attributes.color;
+  let s = 0;
+  for (let i = 0; i < col.count; i++) s += lum({ r: col.getX(i), g: col.getY(i), b: col.getZ(i) });
+  return s / col.count;
+}
+const lightRow = [];
+for (const id of mapIds) {
+  doTeleport(id);
+  const L = R3.debug.lights();
+  const fog = R3.debug.scene().fog;
+  const sum = L.sun.intensity + L.hemi.intensity + L.fill.intensity;
+  lightRow.push({ id: id, dark: !!MAPS[id].dark, sum: sum, far: fog ? fog.far : 0, tile: tileLum(id) });
+}
+for (const r of lightRow) {
+  console.log('  · ' + r.id.padEnd(10) + (r.dark ? '暗' : '亮') +
+              '  光量 ' + r.sum.toFixed(2) + '  雾远 ' + r.far.toFixed(0) + '  地面固有色 ' + r.tile.toFixed(3));
+}
+const darkRows = lightRow.filter(r => r.dark);
+ok(darkRows.length >= 3, '存在夜间地图（' + darkRows.length + ' 张：' + darkRows.map(r => r.id).join('/') + '）');
+const minDark = Math.min.apply(null, darkRows.map(r => r.sum));
+const maxDark = Math.max.apply(null, darkRows.map(r => r.sum));
+const litRows = lightRow.filter(r => !r.dark);
+const minLit = Math.min.apply(null, litRows.map(r => r.sum));
+/* 原来 dungeon 只有 0.34，白天 2.47 —— 差七倍，玩家在找路不是在探险 */
+ok(minDark >= 1.00, '最暗的地图光量不低于 1.00（实测 ' + minDark.toFixed(2) + '）');
+ok(maxDark <= 1.80, '夜间地图仍保持暗调，不超过 1.80（实测 ' + maxDark.toFixed(2) + '）');
+const maxLit = Math.max.apply(null, litRows.map(r => r.sum));
+ok(minLit >= 1.30, '白天地图光量不低于 1.30（实测 ' + minLit.toFixed(2) + '）');
+ok(maxLit <= 3.00, '白天地图没有过曝（最亮 ' + maxLit.toFixed(2) + '）');
+/* 暗图给玩家一盏随身微光，否则身边一米外就全黑 */
+for (const r of darkRows) {
+  doTeleport(r.id);
+  const P = R3.debug.lights().player;
+  ok(P.visible && P.distance >= 400 && P.intensity >= 15000,
+     '暗图 ' + r.id + ' 有随身微光（可见 ' + P.visible + '，距离 ' + P.distance + '，强度 ' + P.intensity + '）');
+}
+/* 雾的远平面太近会让隔两个房间就全黑，和灯无关 */
+const minFar = Math.min.apply(null, lightRow.map(r => r.far));
+ok(minFar >= 1300, '所有地图的雾远平面不近于 1300（实测 ' + minFar.toFixed(0) + '）');
+/* 固有色：darken() 原来乘 0.46 再往近黑偏 24%，地面固有色只剩原来的 39%，
+ * 那种表面加多少灯都是黑的。要求压暗后至少还保留一半。
+ * （不直接比各图的地面亮度——每张图调色板不同，比出来的数没有意义，
+ *   这里比的是 darken() 对同一个颜色的压缩率。） */
+const minDarkTile = Math.min.apply(null, darkRows.map(r => r.tile));
+ok(minDarkTile > 0.035, '暗图地面不是纯黑（最暗 ' + minDarkTile.toFixed(3) + '）');
+const GRASS = 0x767065;
+const keep = lum(new THREE.Color(R3.debug.darken(GRASS))) / lum(new THREE.Color(GRASS));
+ok(keep >= 0.50, '压暗只吃掉不到一半亮度，表面还有东西可反光（保留 ' + (keep * 100).toFixed(0) + '%）');
+/* 色调映射曝光：ACES 会压缩高光，所以抬曝光主要是抬暗部、白天不会过曝 */
+doTeleport('privet');
+const expo = R3.debug.exposure();
+ok(expo >= 1.10 && expo <= 1.40, '色调映射曝光在 1.10~1.40 之间（' + expo + '）');
+doTeleport('privet');
+
 /* ---------------- 9. 输出 ---------------- */
 console.log('\nrender() 调用次数：' + renderCalls);
 ok(renderCalls > 100, '渲染循环正常执行');

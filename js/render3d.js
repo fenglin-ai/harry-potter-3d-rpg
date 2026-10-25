@@ -120,10 +120,14 @@ const R3 = (function () {
     return geo;
   }
 
+  /* 暗图的「反照率压暗」：dark 地图的所有瓦片色都过这一道。
+   * 原来是 ×0.46 再往 0x0a1226 偏 24%，等于把地面的固有色本身调到近黑 ——
+   * 这种情况下再怎么加灯光都照不亮（没有可反射的光）。
+   * 现在 ×0.68 / 偏 16%：仍然是夜里的深色调，但表面还有东西可以反光。 */
   function darken(hex) {
     const c = new THREE.Color(hex);
-    c.multiplyScalar(0.46);
-    c.lerp(new THREE.Color(0x0a1226), 0.24);
+    c.multiplyScalar(0.68);
+    c.lerp(new THREE.Color(0x0a1226), 0.16);
     return c.getHex();
   }
 
@@ -1211,35 +1215,46 @@ const R3 = (function () {
     motes.geometry.attributes.position.needsUpdate = true;
   }
 
-  /* ---------------- 地图氛围（天空 / 雾 / 光照） ---------------- */
+  /* ---------------- 地图氛围（天空 / 雾 / 光照） ----------------
+   * 「暗」和「看不见」是两回事。原来 dark 地图还要再乘 0.28/0.45/0.7，
+   * 地下走廊三盏灯加起来只有 0.34，而白天是 2.47 —— 玩家不是在探险，
+   * 是在找路。现在把夜间系数放宽、并把三张暗图的基础值整体抬上来，
+   * 算下来 地下 1.12 / 禁林 1.23 / 魔镜 1.17，约为白天（2.47）的四到五成：
+   * 仍然是「压暗的地下」，但脸和路都看得清。
+   * 实测（画面平均亮度，0~255）：地下 10 → 31、禁林 14 → 34、魔镜 25 → 46，
+   * 白天地图只涨了 7%~18%，p90 没有抬高（不过曝）。
+   * 雾也一起推远了：原来 dungeon 的远平面只有 880，隔两个房间就全黑。 */
   const AMBIENT = {
     privet:   { sky: 0x8fbde8, fog: [520, 1500], sun: 1.55, hemi: 0.62, fill: 0.30, ground: 0x2f4a24 },
     diagon:   { sky: 0x7d9fc4, fog: [420, 1350], sun: 1.42, hemi: 0.62, fill: 0.34, ground: 0x33333a },
-    station:  { sky: 0x39414f, fog: [320, 1100], sun: 0.95, hemi: 0.56, fill: 0.40, ground: 0x2a2a30 },
-    train:    { sky: 0x4a3a30, fog: [280, 950],  sun: 0.90, hemi: 0.54, fill: 0.44, ground: 0x2a1f18 },
-    hall:     { sky: 0x2e2440, fog: [380, 1300], sun: 0.92, hemi: 0.56, fill: 0.48, ground: 0x2e2440 },
-    classroom:{ sky: 0x322b3e, fog: [340, 1150], sun: 1.02, hemi: 0.60, fill: 0.44, ground: 0x322b3e },
+    station:  { sky: 0x454e5f, fog: [420, 1400], sun: 1.05, hemi: 0.60, fill: 0.42, ground: 0x2a2a30 },
+    train:    { sky: 0x574537, fog: [380, 1300], sun: 1.00, hemi: 0.58, fill: 0.46, ground: 0x2a1f18 },
+    hall:     { sky: 0x3a2f52, fog: [480, 1600], sun: 1.02, hemi: 0.60, fill: 0.50, ground: 0x3a2f52 },
+    classroom:{ sky: 0x3d344c, fog: [440, 1500], sun: 1.10, hemi: 0.62, fill: 0.46, ground: 0x3d344c },
     pitch:    { sky: 0x76a8d8, fog: [600, 1900], sun: 1.60, hemi: 0.68, fill: 0.28, ground: 0x2f5a2a },
-    forest:   { sky: 0x141b23, fog: [220, 900],  sun: 0.40, hemi: 0.32, fill: 0.32, ground: 0x141b23 },
-    mirror:   { sky: 0x22222f, fog: [300, 1050], sun: 0.68, hemi: 0.44, fill: 0.44, ground: 0x22222f },
-    dungeon:  { sky: 0x0a0c12, fog: [240, 880],  sun: 0.22, hemi: 0.22, fill: 0.26, ground: 0x0a0c12 },
-    castle:   { sky: 0x3a3f52, fog: [420, 1400], sun: 1.18, hemi: 0.62, fill: 0.44, ground: 0x3a3f52 },
+    forest:   { sky: 0x1c2732, fog: [380, 1400], sun: 0.72, hemi: 0.58, fill: 0.42, ground: 0x1c2732 },
+    mirror:   { sky: 0x2b2b3c, fog: [400, 1400], sun: 0.72, hemi: 0.52, fill: 0.40, ground: 0x2b2b3c },
+    dungeon:  { sky: 0x1a1f2a, fog: [460, 1600], sun: 0.68, hemi: 0.56, fill: 0.34, ground: 0x1a1f2a },
+    castle:   { sky: 0x454b60, fog: [520, 1700], sun: 1.18, hemi: 0.62, fill: 0.44, ground: 0x454b60 },
   };
-  const DEF_AMB = { sky: 0x3a3f52, fog: [400, 1350], sun: 1.25, hemi: 0.60, fill: 0.40, ground: 0x3a3f52 };
+  const DEF_AMB = { sky: 0x454b60, fog: [480, 1600], sun: 1.25, hemi: 0.60, fill: 0.40, ground: 0x454b60 };
+  /* 夜间（dark 地图）衰减系数 */
+  const NIGHT = { sun: 0.60, hemi: 0.72, fill: 0.90 };
 
   function applyMood(m, id) {
     const a = AMBIENT[id] || DEF_AMB;
     const night = !!m.dark;
     scene.background = new THREE.Color(a.sky);
     scene.fog = new THREE.Fog(a.sky, a.fog[0], a.fog[1]);
-    hemi.intensity = night ? a.hemi * 0.45 : a.hemi;
-    sun.intensity = night ? a.sun * 0.28 : a.sun;
-    fill.intensity = night ? a.fill * 0.7 : a.fill;
-    /* 黑暗地图：玩家自带微光（手里的魔杖/灯笼感） */
+    hemi.intensity = night ? a.hemi * NIGHT.hemi : a.hemi;
+    sun.intensity = night ? a.sun * NIGHT.sun : a.sun;
+    fill.intensity = night ? a.fill * NIGHT.fill : a.fill;
+    /* 黑暗地图：玩家自带微光（手里的魔杖/灯笼感）。
+     * 距离从 340 拉到 430，否则只有脚边一圈亮，隔壁房间的 NPC 完全看不见。 */
     playerLight.visible = night;
     if (night) {
-      playerLight.intensity = 14000;
-      playerLight.distance = 340;
+      playerLight.intensity = 17000;
+      playerLight.distance = 430;
     }
     if (motes) motes.material.opacity = night ? 0.35 : 0.5;
   }
@@ -1291,7 +1306,7 @@ const R3 = (function () {
       const l = torchPool[i];
       if (i < near.length) {
         l.visible = true;
-        l.intensity = 13000;
+        l.intensity = 15000;      // 火把跟着整体提亮一起抬一档
         l.position.set(near[i].s.x, near[i].s.y, near[i].s.z);
       } else {
         l.visible = false;
@@ -1455,7 +1470,9 @@ const R3 = (function () {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    /* 1.05 → 1.18：整体再提 12%。ACES 会把高光压回来，
+     * 所以白天那几张（女贞路 / 魁地奇）不会过曝，暗场景又能多看清一档。 */
+    renderer.toneMappingExposure = 1.18;
 
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x2a2c3a);
@@ -1643,7 +1660,9 @@ const R3 = (function () {
       },
       marker() { return marker; },
       scene() { return scene; },
-      lights() { return { player: playerLight, torches: torchPool, sun: sun }; },
+      lights() { return { player: playerLight, torches: torchPool, sun: sun, hemi: hemi, fill: fill }; },
+      exposure() { return renderer ? renderer.toneMappingExposure : 0; },
+      darken: darken,
       zoomBy(deltaY) { onWheel({ deltaY: deltaY, preventDefault() {} }); },
       dragBy(dx, dy) {
         onPointerDown({ clientX: 0, clientY: 0, pointerId: 1 });
