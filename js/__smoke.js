@@ -830,5 +830,76 @@ for (const id of ['fluffy', 'ron_chess', 'quirrell']) {
   ok(!!npc && typeof npc.show === 'function', '地下走廊的 ' + id + ' 有 show 条件（通关后不能再打）');
 }
 
+/* ---- 24. 装备属性 ----
+ * 「捡到的东西要能影响战斗」。这类功能最容易出的问题是：
+ * 属性写进了数据但没人读、体力上限改完血条对不上、或者同一件东西拿两份叠成无敌。 */
+section('装备属性');
+
+const GEAR = Object.keys(ITEMS).filter(id => ITEMS[id].stat);
+ok(GEAR.length >= 7, '带属性的装备有 ' + GEAR.length + ' 件');
+ok(['robe', 'book', 'owl', 'card', 'flute', 'broom', 'key', 'stone']
+  .every(id => ITEMS[id] && ITEMS[id].stat), '关键道具（袍/书/海德薇/卡/笛/扫帚/钥匙/魔法石）都有属性');
+ok(!ITEMS.letter.stat && !ITEMS.cake.stat && !ITEMS.potion.stat,
+   '纯剧情物品和消耗品不提供战斗加成');
+/* 属性必须是小数百分比，不能是百分比数值（写成 15 就等于 ×16 倍） */
+const badScale = GEAR.filter(id => {
+  const st = ITEMS[id].stat;
+  return ['atk', 'hit', 'guard'].some(k => st[k] !== undefined && Math.abs(st[k]) > 1);
+});
+ok(badScale.length === 0, '攻击/命中/减伤都写成小数（异常：' + (badScale.join(',') || '无') + '）');
+
+/* 汇总 */
+const saveItems = S.items.slice();
+S.items = ['robe', 'broom'];
+const b1 = equipmentBonus();
+ok(Math.abs(b1.guard - 0.08) < 1e-9 && Math.abs(b1.atk - 0.15) < 1e-9,
+   '两件装备的加成会相加（攻击 +' + Math.round(b1.atk * 100) + '% 减伤 −' + Math.round(b1.guard * 100) + '%）');
+/* 同一件拿两份不该叠 */
+S.items = ['robe', 'robe'];
+ok(Math.abs(equipmentBonus().guard - 0.08) < 1e-9, '重复物品不叠加（拿到两份长袍 ≠ 双倍减伤）');
+/* 空背包 / 只有剧情物品 = 没有加成 */
+S.items = ['letter', 'cake', 'frog'];
+const b0 = equipmentBonus();
+ok(b0.atk === 0 && b0.hit === 0 && b0.guard === 0 && b0.hp === 0, '没有装备时加成为 0');
+
+/* 体力上限跟着装备走，并且当前体力按比例迁移 */
+S.items = ['flute'];                       // +12
+S.hp = 50; S.maxHp = 100;
+recalcStats();
+ok(S.maxHp === 112, '带上木笛后体力上限 100 → ' + S.maxHp);
+ok(S.hp === 56, '半血迁移后仍是半血（50/100 → ' + S.hp + '/' + S.maxHp + '）');
+S.items = ['flute', 'stone'];              // +12 +30
+recalcStats();
+ok(S.maxHp === 142, '再拿到魔法石，上限 ' + S.maxHp);
+ok(S.hp <= S.maxHp && S.hp >= 1, '迁移后体力仍在 [1, 上限] 区间（' + S.hp + '）');
+S.items = [];
+recalcStats();
+ok(S.maxHp === 100, '清空背包后上限回到 100（' + S.maxHp + '）');
+
+/* 文字描述 */
+S.items = ['broom', 'stone'];
+const bt = bonusText();
+ok(/攻击 \+40%/.test(bt) && /体力上限 \+30/.test(bt) && /减伤 −12%/.test(bt),
+   '加成一行的文案正确（' + bt + '）');
+S.items = [];
+ok(bonusText() === '', '没有加成时文案为空（界面自己兜底显示「暂无」）');
+
+/* 决斗真的读了这些属性：只写在数据里没人读，等于没做 */
+ok(/equipmentBonus\(\)\.atk/.test(duelSrc), '魔杖威力乘了装备攻击加成');
+ok(/equipmentBonus\(\)\.hit/.test(duelSrc), '命中率加了装备命中加成');
+ok(/1 - equipmentBonus\(\)\.guard/.test(duelSrc), '敌方伤害乘了装备减伤');
+ok(/clamp\(1 - equipmentBonus\(\)\.guard, 0\.4, 1\)/.test(duelSrc),
+   '减伤有 40% 下限，堆装备也堆不到免伤');
+ok(/equipmentBonus/.test(GAME_SRC.slice(GAME_SRC.indexOf('function enemyStrike'), GAME_SRC.indexOf('function quirellTurn'))),
+   '减伤写在 enemyStrike 里（不是在某个用不到的分支）');
+
+S.items = ['robe'];
+openBag();
+ok(/减伤 −8%/.test($('bagItems').innerHTML), '背包里能看到长袍的加成（不是只有一句风味描述）');
+ok(/减伤 −8%/.test($('bagStats').innerHTML), '背包顶部显示总加成');
+
+S.items = saveItems;
+recalcStats();
+
 console.log('\n结果：' + pass + ' 通过，' + fail + ' 失败');
 process.exit(fail ? 1 : 0);

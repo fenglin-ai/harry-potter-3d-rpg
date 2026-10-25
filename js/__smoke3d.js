@@ -203,13 +203,8 @@ function findChest(rig) {
 }
 function hasScar(rig) {
   let found = false;
-  rig.body.traverse(o => {
-    if (o.isMesh && o.geometry && o.geometry.type === 'BoxGeometry') {
-      const p = o.geometry.parameters;
-      if (Math.abs(p.width - 0.5) < 1e-6 && Math.abs(p.height - 1.3) < 1e-6 &&
-          Math.abs(p.depth - 0.4) < 1e-6) found = true;
-    }
-  });
+  // 疤是多段细条拼的闪电，靠 mesh.name 认，不要靠 BoxGeometry 的尺寸
+  rig.body.traverse(o => { if (o.isMesh && o.name === 'scar') found = true; });
   return found;
 }
 function ringMeshes(rig) {
@@ -268,19 +263,34 @@ for (const [name, rig] of [['小孩', kidRig], ['成人', adultRig]]) {
   }
 }
 
-/* 蓝色虹膜：只有配了 iris 的角色才有眼珠层 */
+/* 蓝色虹膜：只有配了 iris 的角色才有眼珠层。
+ * 眼球现在是压扁的球，靠 geometry.name 认（见 render3d 的 named()）。 */
 function hasIris(rig) {
   let found = false;
-  rig.body.traverse(o => {
-    if (o.isMesh && o.geometry && o.geometry.type === 'BoxGeometry') {
-      const p = o.geometry.parameters;
-      if (Math.abs(p.width - 1.72) < 1e-6 && Math.abs(p.height - 1.88) < 1e-6) found = true;
-    }
-  });
+  rig.body.traverse(o => { if (o.isMesh && o.geometry && o.geometry.name === 'iris') found = true; });
   return found;
 }
 ok(hasIris(kidRig), '哈利有蓝色虹膜层');
 ok(!hasIris(M.makeHumanoid({ kid: true })), '没配 iris 的小孩不加虹膜层');
+
+/* 后脑勺不能秃：这是真 bug。hairBack 的 z 半轴 + 中心偏移必须盖过头部后沿，
+ * 否则从背后看整个后脑勺是皮肤色。 */
+function backHeadCovered(rig) {
+  let head = null, back = null;
+  rig.body.traverse(o => {
+    if (!o.isMesh || !o.geometry || o.geometry.type !== 'SphereGeometry') return;
+    const r = o.geometry.parameters.radius;
+    if (Math.abs(r - 6.6) < 1e-6) head = o;
+    if (Math.abs(r - 7.0) < 1e-6) back = o;
+  });
+  if (!head || !back) return false;
+  /* 两者都以头心为原点：头沿 -Z 到 -r*scale，发块沿 -Z 到 pos.z - r*scale.z */
+  const headBack = -6.6 * head.scale.x;
+  const hairBack = back.position.z - 7.0 * back.scale.z;
+  return hairBack <= headBack - 0.3;      // 至少盖过 0.3，别只差 0.07
+}
+ok(backHeadCovered(kidRig), '小孩后脑勺被头发盖住（不是秃的）');
+ok(backHeadCovered(adultRig), '成人后脑勺被头发盖住（不是秃的）');
 
 /* 闪电疤只属于哈利：罗恩额头上不能长疤 */
 ok(hasScar(kidRig), '哈利头上有闪电疤');
@@ -334,7 +344,7 @@ if (realPlayer) {
   ok(!!rh, '能定位玩家的头部球');
   if (rh) {
     ok(rh.scale.x > 1.05, '玩家头按小孩比例放大（' + rh.scale.x.toFixed(3) + '）');
-    /* 玩家带 group.scale（1.15），头身比要把这个缩放一并算进去才是量纲一致的 */
+    /* 玩家带 group.scale（0.95），头身比要把这个缩放一并算进去才是量纲一致的 */
     const ps = realPlayer.group.scale.x || 1;
     const rRatio = (2 * 6.6 * rh.scale.x * ps) / realPlayer.height;
     ok(rRatio > adultRatio * 1.08, '玩家头身比更幼（' + rRatio.toFixed(3) + ' vs ' + adultRatio.toFixed(3) + '）');
@@ -344,7 +354,149 @@ if (realPlayer) {
   ok(!anyNaN(realPlayer), '玩家模型无 NaN');
 }
 
-/* ---------------- 8. 输出 ---------------- */
+/* ---------------- 8. 头发 / 巨人 / 长发 / 树 ---------------- */
+section('头发不是尖刺，后脑是蓬乱的');
+
+/* 老版本用 ConeGeometry（圆锥）朝外戳，近看像刺猬。现在头发全在球壳上。 */
+let spikes = 0;
+kidRig.body.traverse(o => { if (o.isMesh && o.geometry.type === 'ConeGeometry') spikes++; });
+ok(spikes === 0, '哈利的头发里没有圆锥尖刺（' + spikes + ' 个）');
+
+/* 发壳必须「表面不平」：抖动量不够就是一颗光滑的球（用户说的「像头盔」）。
+ * 同时最小半径不能小于基准半径，否则局部会缩进头球里、露出一块头皮。 */
+function shellStats(rig, name) {
+  let g = null;
+  rig.body.traverse(o => { if (o.isMesh && o.geometry && o.geometry.name === name) g = o.geometry; });
+  if (!g) return null;
+  const a = g.attributes.position;
+  let mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < a.count; i++) {
+    const r = Math.hypot(a.getX(i), a.getY(i), a.getZ(i));
+    if (r < mn) mn = r;
+    if (r > mx) mx = r;
+  }
+  return { min: mn, max: mx };
+}
+const shell = shellStats(kidRig, 'hairBack');
+ok(!!shell, '能定位后脑发壳');
+if (shell) {
+  ok(shell.min >= 7.0 - 1e-3, '发壳只往外鼓、不缩进头皮（最小半径 ' + shell.min.toFixed(2) + '）');
+  ok(shell.max - shell.min > 0.8, '发壳表面有明显起伏（' + (shell.max - shell.min).toFixed(2) + '）');
+}
+
+/* 眼睛：虹膜不能铺满眼眶，否则「一颗蓝豆子镶在肉里」 */
+function geoSize(rig, name) {
+  let g = null;
+  rig.body.traverse(o => { if (o.isMesh && o.geometry && o.geometry.name === name) g = o.geometry; });
+  if (!g) return null;
+  g.computeBoundingBox();
+  const b = g.boundingBox;
+  return { w: b.max.x - b.min.x, h: b.max.y - b.min.y, g: g };
+}
+const irisS = geoSize(kidRig, 'iris'), whiteS = geoSize(kidRig, 'eyeWhite');
+ok(!!irisS && !!whiteS, '能定位虹膜与眼白');
+if (irisS && whiteS) {
+  ok(irisS.w < whiteS.w * 0.8,
+     '虹膜比眼白小一圈（' + irisS.w.toFixed(2) + ' vs ' + whiteS.w.toFixed(2) + '）');
+  /* 高光必须落在虹膜里面，不能挂在眼白/眼眶上 */
+  let eyeGroup = null;
+  kidRig.body.traverse(o => { if (o.isMesh && o.geometry && o.geometry.name === 'glint') eyeGroup = o.parent; });
+  ok(!!eyeGroup, '能定位高光');
+  if (eyeGroup) {
+    const gl = eyeGroup.children.find(c => c.geometry && c.geometry.name === 'glint');
+    const gw = geoSize(kidRig, 'glint');
+    const insideX = Math.abs(gl.position.x) + gw.w / 2 <= irisS.w / 2 + 1e-6;
+    const insideY = Math.abs(gl.position.y) + gw.h / 2 <= irisS.h / 2 + 1e-6;
+    ok(insideX && insideY, '高光落在虹膜上，不在眼白上');
+  }
+}
+
+section('海格是混血巨人');
+const harryStyle = M.npcStyle({ id: 'harry' });
+const harryRig2 = M.makeHumanoid(Object.assign({ robe: '#7a5a38', scale: 0.95 }, harryStyle));
+const hagRig = M.makeHumanoid(Object.assign({ robe: '#5a4a3a' }, M.npcStyle({ id: 'hagrid' })));
+/* 原著里海格约为常人的两倍高；这里的量纲是人比格子大，所以看的是「相对哈利」的倍数 */
+ok(hagRig.height > harryRig2.height * 2.0,
+   '海格比哈利高得多（' + (hagRig.height / harryRig2.height).toFixed(2) + ' 倍：' +
+   hagRig.height.toFixed(1) + ' vs ' + harryRig2.height.toFixed(1) + '）');
+/* 身上的毛：一圈圈压扁的毛球，数量少了就还是一片布 */
+let furTufts = 0;
+hagRig.body.traverse(o => {
+  if (o.isMesh && o.geometry && o.geometry.type === 'SphereGeometry' &&
+      o.geometry.parameters && Math.abs(o.geometry.parameters.radius - 1.7) < 1e-6) furTufts++;
+});
+ok(furTufts >= 40, '海格身上有成片的毛（' + furTufts + ' 团）');
+ok(furTufts === 0 || (() => {   // 毛不能只有四块大方块：旧的 furPatch 方块必须已经不用了
+  let boxes = 0;
+  hagRig.body.traverse(o => {
+    if (o.isMesh && o.geometry && o.geometry.type === 'BoxGeometry') {
+      const p = o.geometry.parameters;
+      if (Math.abs(p.width - 6.5) < 1e-6) boxes++;
+    }
+  });
+  return boxes === 0;
+})(), '海格的毛不再是 6.5 见方的大方块');
+
+section('赫敏是长发');
+const hermRig = M.makeHumanoid(Object.assign({ robe: '#5a4a3a' }, M.npcStyle({ id: 'hermione_hall' })));
+const locks = [];
+hermRig.body.traverse(o => {
+  if (o.isMesh && o.geometry && o.geometry.type === 'CylinderGeometry') {
+    const p = o.geometry.parameters;
+    if (Math.abs(p.height - 15) < 1e-6) locks.push(o);
+  }
+});
+ok(locks.length === 3, '赫敏有三缕垂下来的长发（' + locks.length + '）');
+/* 发缕必须挂在发壳外面（壳半径约 7.85），否则会被头发整个盖住看不见 */
+const sideLocks = locks.filter(o => Math.abs(o.position.x) > 1).length;
+ok(sideLocks === 2, '左右各一缕侧发（' + sideLocks + '）');
+if (locks.length) {
+  const outer = Math.max.apply(null, locks.map(o => Math.abs(o.position.x) + 2.9 * o.scale.x));
+  ok(outer > 8, '侧发露在头发壳外面（外沿 ' + outer.toFixed(2) + '）');
+}
+
+section('树更高了，树底不再悬空');
+/* terrain 把整张图的地板/树合并成一个 mesh，所以看它的包围盒和顶点分布 */
+function biggestMesh() {
+  let best = null, n = 0;
+  M.scene().traverse(o => {
+    if (o.isMesh && o.geometry && o.geometry.attributes &&
+        o.geometry.attributes.position && o.geometry.attributes.position.count > n) {
+      best = o; n = o.geometry.attributes.position.count;
+    }
+  });
+  return best;
+}
+let tallest = 0, moundTops = 0, treeMaps = 0;
+for (const id of mapIds) {
+  doTeleport(id);
+  const m = biggestMesh();
+  if (!m) continue;
+  m.geometry.computeBoundingBox();
+  const top = m.geometry.boundingBox.max.y;
+  /* 树冠顶 = trunkH(40~54) + 30 + 9 ≈ 79；人物身高 56，之前只有 60 出头 */
+  let found = 0;
+  const pos = m.geometry.attributes.position;
+  const T = 32, HALF = T / 2;      // 与 render3d 的 TILE 一致
+  for (let i = 0; i < pos.count; i++) {
+    /* 认土丘只看「格子中心 + y=-12」这一对坐标：土丘是唯一一个
+     * 底部盖中心刚好压在 -FLOOR_T(-12) 的构件（方块几何体只在八个角上有顶点，
+     * 盖心顶点只有圆柱/圆锥/球才有）。只看 y=5 是不行的——实测每张图都有
+     * 几十个别的构件也在「格子中心 + y=5」上有顶点，把土丘删掉那条断言照样通过。 */
+    if (Math.abs(pos.getY(i) + 12) > 1e-3) continue;
+    const fx = (pos.getX(i) - HALF) / T, fz = (pos.getZ(i) - HALF) / T;
+    if (Math.abs(fx - Math.round(fx)) < 1e-3 && Math.abs(fz - Math.round(fz)) < 1e-3) found++;
+  }
+  if (top > 70) treeMaps++;          // 树冠顶过 70 才算「比人高得多的树」
+  moundTops += found;
+  if (top > tallest) tallest = top;
+}
+ok(treeMaps > 0, '有地图种了树（' + treeMaps + ' 张）');
+ok(moundTops > 0, '每个树坑都补了土丘（' + moundTops + ' 个盖心顶点）');
+ok(tallest > 70, '树比人高得多（最高 ' + tallest.toFixed(1) + '，人物身高 ' + harryRig2.height.toFixed(1) + '）');
+doTeleport('privet');
+
+/* ---------------- 9. 输出 ---------------- */
 console.log('\nrender() 调用次数：' + renderCalls);
 ok(renderCalls > 100, '渲染循环正常执行');
 console.log('\n通过 ' + pass + ' 项，失败 ' + fail + ' 项');

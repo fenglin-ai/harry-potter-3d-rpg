@@ -277,6 +277,53 @@ function saveGame() {
 }
 function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
 
+/* ---------- 装备属性 ----------
+ * 游戏里没有「穿/脱」这一步：拿到手的东西就是随身带着的，
+ * 所以「背包里所有带 stat 的物品」相加就是哈利的战斗加成。
+ * 这样既不用加一套装备界面，玩家捡到东西也立刻能感觉到变强。
+ *
+ * 注意体力上限：S.maxHp 存的就是「含加成的上限」，
+ * 改装备时按当前血量比例一起迁过去，否则上限一变血条会突然长一截或塌一截。 */
+const BASE_MAX_HP = 100;
+const STAT_LABEL = { atk: '攻击', hit: '命中', guard: '减伤', hp: '体力上限' };
+
+function equipmentBonus() {
+  const b = { atk: 0, hit: 0, guard: 0, hp: 0 };
+  /* 同一件东西拿两份不叠：这不是「叠加 buff」，是「你带着什么」。
+   * 用 Set 去重，「robe 有没有」比「robe 有几个」更符合直觉。 */
+  const seen = new Set();
+  for (const id of S.items) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const st = ITEMS[id] && ITEMS[id].stat;
+    if (!st) continue;
+    for (const k in st) if (b[k] !== undefined) b[k] += st[k];
+  }
+  return b;
+}
+
+/* 把 stat 拼成一行文字：「攻击 +40%　命中 +11%　减伤 −31%　体力上限 +42」 */
+function bonusText() {
+  const b = equipmentBonus();
+  const parts = [];
+  if (b.atk) parts.push('攻击 +' + Math.round(b.atk * 100) + '%');
+  if (b.hit) parts.push('命中 +' + Math.round(b.hit * 100) + '%');
+  if (b.guard) parts.push('减伤 −' + Math.round(b.guard * 100) + '%');
+  if (b.hp) parts.push('体力上限 +' + b.hp);
+  return parts.join('　');
+}
+
+function recalcStats() {
+  const b = equipmentBonus();
+  const next = BASE_MAX_HP + b.hp;
+  if (next !== S.maxHp) {
+    const ratio = S.maxHp > 0 ? S.hp / S.maxHp : 1;
+    S.maxHp = next;
+    S.hp = clamp(Math.round(ratio * next), 1, next);
+  }
+  return b;
+}
+
 function hasSave() {
   try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; }
 }
@@ -473,6 +520,8 @@ function applyEffects(set, gain, hp, pts) {
       S.items.push(id);
       if (ITEMS[id]) toast('获得：' + ITEMS[id].i + ' ' + ITEMS[id].n, 2000);
     }
+    /* 拿到带属性的东西，体力上限可能立刻变高（recalcStats 会按比例迁移当前体力） */
+    recalcStats();
   }
   if (set) {
     if (set.lettersDone === 1) toast('又一封信飘进了院子——跟着金色的 ✦ 就能找到它！', 3000);
@@ -1165,6 +1214,13 @@ function runDuel(def) {
   manaLine.className = 'mini-hp';
   w.appendChild(manaLine);
 
+  /* 装备加成单独一行：这场战斗里不会变，所以只写一次，
+   * 不塞进 refresh() 免得每次刷新都重排 */
+  const gearLine = document.createElement('div');
+  gearLine.className = 'mini-hp';
+  gearLine.textContent = '🛡 装备加成：' + (bonusText() || '无（包里还没带上有用的东西）');
+  w.appendChild(gearLine);
+
   const actions = document.createElement('div');
   actions.className = 'duel-actions';
   w.appendChild(actions);
@@ -1183,8 +1239,16 @@ function runDuel(def) {
     if (i !== -1) S.items.splice(i, 1);
   }
 
-  function wandPower() { return S.wand && S.wand.power ? S.wand.power : 1; }
-  function wandHit() { return S.wand && S.wand.hit ? S.wand.hit : 0; }
+  /* 战斗加成：魔杖本身 + 背包里所有带 stat 的装备。
+   * 之前只看魔杖，捡到长袍/扫帚/魔法石都只是背包里多两个字。 */
+  function wandPower() {
+    const base = S.wand && S.wand.power ? S.wand.power : 1;
+    return base * (1 + equipmentBonus().atk);
+  }
+  function wandHit() {
+    const base = S.wand && S.wand.hit ? S.wand.hit : 0;
+    return base + equipmentBonus().hit;
+  }
 
   /* 刷新血条 / 魔力 / 体力行 */
   function refresh() {
@@ -1202,7 +1266,9 @@ function runDuel(def) {
     const raw = Math.round((11 + Math.floor(Math.random() * 9)) * boost);
     const wasDef = defending;
     defending = false;
-    const dmg = wasDef ? Math.max(1, Math.round(raw * 0.4)) : raw;
+    /* 装备减伤先算，再乘防御姿态的 40%——两者叠起来才有「攒齐装备再打」的意义 */
+    const armor = clamp(1 - equipmentBonus().guard, 0.4, 1);
+    const dmg = Math.max(1, Math.round(raw * armor * (wasDef ? 0.4 : 1)));
     hpH = clamp(hpH - dmg, 1, S.maxHp);
     let msg = (phase2 ? '伏地魔嘶吼着挥杖——' : '奇洛挥动魔杖——') + '你被击中，体力 -' + dmg + '。';
     if (wasDef) msg += '（防御卸掉了大半力道）';
@@ -1809,15 +1875,28 @@ function openBag() {
     '<span class="bag-stat">❤️ ' + S.hp + '/' + S.maxHp + '</span>' +
     '<span class="bag-stat">🪙 ' + S.gold + '</span>' +
     '<span class="bag-stat">🏆 学院分 ' + S.pts + '</span>' +
-    '<span class="bag-stat">' + (S.wand ? '🪄 ' + S.wand.n : '🪄 还没有魔杖') + '</span>';
+    '<span class="bag-stat">' + (S.wand ? '🪄 ' + S.wand.n : '🪄 还没有魔杖') + '</span>' +
+    '<span class="bag-stat" style="color:#d9c37a">🛡 ' + (bonusText() || '暂无装备加成') + '</span>';
   const ids = Object.keys(counts);
   $('bagItems').innerHTML = '<div class="bag-sec">物品</div>' +
     (ids.length ? ids.map(id => {
       const it = ITEMS[id];
       if (!it) return '';
       const n = counts[id] > 1 ? ' ×' + counts[id] : '';
+      /* 带 stat 的物品直接写出加成，否则玩家永远不知道长袍有什么用 */
+      let note = '';
+      if (it.stat) {
+        const bits = [];
+        for (const k in it.stat) {
+          const v = it.stat[k];
+          bits.push(STAT_LABEL[k] + ' ' + (k === 'guard' ? '−' : '+') +
+                    (k === 'hp' ? v : Math.round(v * 100) + '%'));
+        }
+        note = '<div class="bd"><b style="color:#d9c37a">' + bits.join('　') + '</b>' +
+               (it.statNote ? '　' + it.statNote : '') + '</div>';
+      }
       return '<div class="bag-item"><span class="bi">' + it.i + '</span>' +
-        '<div><div class="bn">' + it.n + n + '</div><div class="bd">' + it.d + '</div></div></div>';
+        '<div><div class="bn">' + it.n + n + '</div><div class="bd">' + it.d + '</div>' + note + '</div></div>';
     }).join('') : '<div class="bag-empty">背包空空如也……去院子里看看那封信吧。</div>');
   $('bagSpells').innerHTML = '<div class="bag-sec">咒语</div>' +
     (S.spells.length ? S.spells.map(id => {
@@ -2025,6 +2104,7 @@ let inTitle = true;
 /* ---------- 开始 / 继续 ---------- */
 function startNew() {
   freshState();
+  recalcStats();          // 空背包 = 上限回到 100，和 freshState 一致，只是保证口径统一
   viewRot = 0; viewRotTarget = 0;
   if (GFX.ready) { GFX.resetView(); GFX.setYaw(0); }
   inTitle = false;
@@ -2060,6 +2140,9 @@ function continueGame() {
       if (S.wands.indexOf('holly') === -1) S.wands.push('holly');
     }
     if (S.flags.sorted === undefined) { /* 旧档容错 */ }
+    /* 旧存档里 maxHp 是写死的 100；这里按当前背包重算一次，
+     * 已经含加成的存档 next === maxHp，等于什么都没做。 */
+    recalcStats();
     inTitle = false;
     $('titleScreen').style.display = 'none';
     $('gameWrap').style.display = 'block';

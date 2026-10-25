@@ -220,18 +220,37 @@ const R3 = (function () {
 
         /* --- 树 --- */
         if (p.tree) {
-          const trunkH = 22 + Math.floor(r0 * 8);
-          const tr = paint(new THREE.CylinderGeometry(3.4, 4.6, trunkH, 6), dark ? 0x3a2a1a : 0x5a3d2e, dark ? 0x2a1d12 : 0x402a1f);
+          /* 树所在的格子在上面 floor 分支里被 !p.tree 排除了，根本不铺地板，
+           * 所以树干底下其实是一个 12 单位深的坑 —— 这就是「树看起来悬空」的来源。
+           * 先补一个土丘把坑填掉：上面草地色、四周泥土色（paint 按法线朝上分开染色）。 */
+          const mound = paint(new THREE.CylinderGeometry(10, 13, FLOOR_T + 5, 8),
+                              dark ? darken(GRASS_TOPS[hash(tx, ty) % 3]) : GRASS_TOPS[hash(tx, ty) % 3],
+                              dark ? 0x2a2114 : 0x4a3a26);
+          mound.translate(cx, (5 - FLOOR_T) / 2, cz);   // -12 ~ 5，顶上是个浅土包
+          solids.push(mound);
+          /* 树根周围一圈草，把土丘和地面接缝盖掉 */
+          for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2 + r1 * 3;
+            const t = paint(new THREE.ConeGeometry(3.4, 7, 5),
+                            dark ? 0x24401d : 0x3f7a35, dark ? 0x1a2c14 : 0x2a5223);
+            t.translate(cx + Math.cos(a) * 9.5, 6.5, cz + Math.sin(a) * 9.5);
+            solids.push(t);
+          }
+          /* 原来只有 22~30 高，比角色高不了多少；40~54 才有「树」的体量 */
+          const trunkH = 40 + Math.floor(r0 * 14);
+          const tr = paint(new THREE.CylinderGeometry(4.2, 6.6, trunkH, 7), dark ? 0x3a2a1a : 0x5a3d2e, dark ? 0x2a1d12 : 0x402a1f);
           tr.translate(cx, trunkH / 2, cz);
           solids.push(tr);
           const leafA = dark ? 0x2c4a22 : 0x3f7a35, leafB = dark ? 0x24401d : 0x356a2c;
-          const c1 = paint(new THREE.SphereGeometry(12, 8, 6), leafA, leafA);
-          c1.translate(cx, trunkH + 8, cz);
-          const c2 = paint(new THREE.SphereGeometry(8.5, 8, 6), leafB, leafB);
-          c2.translate(cx - 7, trunkH + 15, cz);
-          const c3 = paint(new THREE.SphereGeometry(8.5, 8, 6), leafB, leafB);
-          c3.translate(cx + 7, trunkH + 15, cz);
-          solids.push(c1, c2, c3);
+          const c1 = paint(new THREE.SphereGeometry(15, 8, 6), leafA, leafA);
+          c1.translate(cx, trunkH + 10, cz);
+          const c2 = paint(new THREE.SphereGeometry(11, 8, 6), leafB, leafB);
+          c2.translate(cx - 9, trunkH + 20, cz);
+          const c3 = paint(new THREE.SphereGeometry(11, 8, 6), leafB, leafB);
+          c3.translate(cx + 9, trunkH + 20, cz);
+          const c4 = paint(new THREE.SphereGeometry(9, 8, 6), leafA, leafA);
+          c4.translate(cx, trunkH + 30, cz);
+          solids.push(c1, c2, c3, c4);
           continue;
         }
 
@@ -475,21 +494,38 @@ const R3 = (function () {
     chest: new THREE.BoxGeometry(12.6, 9.6, 9.2),          // 上身：29.5 ~ 39.5
     collar: new THREE.CylinderGeometry(5.0, 6.4, 3.2, 10),
     head: new THREE.SphereGeometry(6.6, 14, 10),
-    /* 头发只做「锅盖」这一层：phiLength 收到 0.36π，发际线落在头顶往下 3.0 处，
-     * 留出额头；再低就成头盔了，眉毛和闪电疤都会没地方放。 */
-    hairCap: new THREE.SphereGeometry(7.05, 14, 9, 0, Math.PI * 2, 0, Math.PI * 0.36),
-    hairBack: new THREE.SphereGeometry(7.0, 12, 9),
+    /* 一头乱毛的做法：不要「光滑球 + 外面再粘一堆小球」——
+     * 粘球一定失败：要么整颗被球壳吞掉（后脑看着像秃/像头盔），
+     * 要么全鼓在外面变成一串葡萄。真正的做法是让球壳本身就不平整。
+     * 把球面每个顶点沿法线随机推 1 个单位左右，再靠 flatShading 出硬面，
+     * 得到的就是一整块「一撮一撮」的低多边形乱发，而且完全不会有接缝：
+     * 抖动量只跟顶点方向有关，接缝/极点上的重复顶点会被推到同一个位置。 */
+    hairCap: named(hairShell(7.05, 15, 9, 1.05, Math.PI * 0.36), 'hairCap'),
+    /* 后脑发块。原来 z 压到 0.8、中心只往 -0.9 挪，后沿只到 -7.28，
+     * 而头球后沿是 -7.35 —— 差 0.07，于是每个人的后脑勺都露着头皮，看着像秃的。
+     * 现在 z 放宽到 0.92、中心挪到 -1.35：后沿 -7.79（盖过头球 1.2），
+     * 前沿 5.09（眼睛在 z≈6.1，不会盖脸）。 */
+    hairBack: named(hairShell(7.0, 14, 11, 1.15), 'hairBack'),
+    /* 发簇：不是竖起来的尖刺，是贴着头皮的一团团。半径 1.7、纵向压 0.75，
+     * 摆上去只会让头围鼓出 1 个单位左右，形成蓬乱的毛感而不是刺猬。 */
+    hairClump: new THREE.SphereGeometry(1.7, 8, 6),
     hairSpike: new THREE.ConeGeometry(2.2, 4.4, 5),
-    /* 五官：眼眶（深色描边）+ 眼白 + 虹膜 + 瞳孔 + 高光 + 眉毛 + 鼻子 + 嘴
-     * 描边是为了让眼睛在游戏远景里也能一眼看清，不然眼白会糊进肤色。
-     * 尺寸都压得比较小：之前眼白 2.4、眼镜环半径 2.8，近看像贴了两张白纸。 */
-    eyeSocket: new THREE.BoxGeometry(2.35, 2.5, 0.55),
-    eyeWhite: new THREE.BoxGeometry(1.85, 2.0, 0.55),
-    iris: new THREE.BoxGeometry(1.72, 1.88, 0.5),      // 哈利的蓝眼珠，套在瞳孔外圈
-    pupil: new THREE.BoxGeometry(0.92, 1.15, 0.55),
-    glint: new THREE.BoxGeometry(0.32, 0.32, 0.35),
+    /* 五官：眼眶（深色描边）+ 眼白 + 虹膜 + 瞳孔 + 高光 + 眉毛 + 鼻子 + 嘴。
+     * 眼球一律用「压扁的球」而不是方块：方块眼近看就是贴在脸上的方片，
+     * 圆形才像眼睛。尺寸烘进 geometry（BufferGeometry.scale），
+     * 这样三头犬那种直接引用 GEO.eyeWhite 的旧用法尺寸不变。 */
+    eyeSocket: named(new THREE.SphereGeometry(1, 10, 8).scale(1.14, 1.26, 0.32), 'eyeSocket'),
+    eyeWhite: named(new THREE.SphereGeometry(1, 12, 9).scale(1.00, 1.12, 0.30), 'eyeWhite'),
+    /* 虹膜只有眼白的 64%：之前给到 86%，蓝盘子几乎铺满眼眶，
+     * 远看就是「一颗蓝豆子镶在肉色圈里」，眼白只剩一条缝。
+     * 眼白/虹膜 ≈ 1.5 是卡通脸最好认的比例。 */
+    iris: named(new THREE.SphereGeometry(1, 12, 9).scale(0.64, 0.74, 0.26), 'iris'),
+    pupil: named(new THREE.SphereGeometry(1, 10, 8).scale(0.30, 0.36, 0.26), 'pupil'),
+    glint: named(new THREE.SphereGeometry(1, 6, 5).scale(0.19, 0.19, 0.19), 'glint'),
     cheek: new THREE.SphereGeometry(2.1, 8, 6),        // 小孩的圆脸蛋
-    brow: new THREE.BoxGeometry(2.45, 0.55, 0.55),
+    longHair: new THREE.CylinderGeometry(2.9, 1.7, 15, 7),   // 赫敏的长发：上粗下细的发缕
+    furPatch: new THREE.BoxGeometry(6.5, 5.0, 6.5),    // 旧的海格毛块（已被毛球圈取代，留着备用）
+    brow: new THREE.BoxGeometry(2.15, 0.44, 0.46),
     nose: new THREE.BoxGeometry(1.35, 1.5, 1.4),
     noseKid: new THREE.SphereGeometry(1.0, 8, 6),     // 小孩的小圆鼻子，比方块鼻子幼得多
     mouth: new THREE.BoxGeometry(2.6, 0.7, 0.5),
@@ -512,6 +548,36 @@ const R3 = (function () {
     wand: new THREE.CylinderGeometry(0.65, 0.85, 17, 6),
     eye: new THREE.BoxGeometry(1.7, 1.7, 0.7),            // 兼容旧引用（三头犬）
   };
+
+  function named(geo, name) { geo.name = name; return geo; }
+
+  /* 乱发球壳：把球面顶点沿法线往外推一个不规则的量，flatShading 下就是
+   * 「一撮一撮」的低多边形头发。
+   *
+   * 关键两点：
+   *   1. 抖动量只由顶点「方向」决定（不看索引）。球面的接缝、极点都有重复顶点，
+   *      按方向算的话它们会被推到同一个位置，不会裂出一道缝。
+   *   2. 只往外推、不往里收（d ∈ [0, jitter]）。往里收会让局部半径小于头球
+   *      半径 6.6，头皮就直接漏出来了 —— 又变回「后脑勺是秃的」。
+   */
+  function hairShell(r, wSeg, hSeg, jitter, thetaLen) {
+    const g = new THREE.SphereGeometry(r, wSeg, hSeg, 0, Math.PI * 2, 0,
+                                       thetaLen === undefined ? Math.PI : thetaLen);
+    const pos = g.attributes.position;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).normalize();
+      /* 三个不同频率的正弦叠起来：够不规则，又完全可复现（不用随机数） */
+      const k = Math.sin(v.x * 9.13 + v.y * 17.7) * 0.55
+              + Math.sin(v.y * 23.3 + v.z * 11.9) * 0.30
+              + Math.sin(v.z * 31.1 - v.x * 13.3) * 0.15;
+      const d = r + (k * 0.5 + 0.5) * jitter;
+      pos.setXYZ(i, v.x * d, v.y * d, v.z * d);
+    }
+    pos.needsUpdate = true;
+    g.computeVertexNormals();
+    return g;
+  }
 
   function mat(color, opt) {
     opt = opt || {};
@@ -582,9 +648,14 @@ const R3 = (function () {
        * 圆框黑眼镜底下那双蓝眼睛。 */
       if (mats.eyeI) addMesh(eye, GEO.iris, mats.eyeI, 0, -0.02, -0.02);
       const pp = addMesh(eye, GEO.pupil, mats.eyeB, 0, -0.05, 0.04);
-      if (mats.eyeI) pp.scale.set(0.54, 0.62, 1);   // 有了虹膜，瞳孔要收进去才是眼珠不是豆子
-      /* 高光做成眼白外上角的小点：压在瞳孔上会把瞳孔啃掉一个角，看着像在斜视 */
-      addMesh(eye, GEO.glint, mats.eyeW, sx * 0.70, 0.78, 0.1);
+      /* 成人没配虹膜层，瞳孔就得自己撑起「一颗眼珠」的体量。
+       * 按小孩的尺寸放，白眼球上只剩一个小黑点，看着像失焦。
+       * 只在没有虹膜时才放大——有虹膜的角色放大会把蓝眼珠整个吃掉。 */
+      if (!mats.eyeI) pp.scale.set(1.95, 1.75, 1);
+      /* 高光必须落在虹膜上：之前摆在 (0.70, 0.78)，那已经在虹膜外沿之外，
+       * 白白一颗球挂在「眼眶」的肉色上，看着像眼睛里长了颗瘤。
+       * 现在压到虹膜右下象限、刚好贴着瞳孔外沿，z 抬到虹膜表面之外才看得见。 */
+      addMesh(eye, GEO.glint, mats.eyeW, sx * 0.33, 0.33, 0.16);
 
       if (opts.glasses) {
         /* z 只给 0.34：镜框前移太多会脱开脸颊轮廓，远看像一副护目镜 */
@@ -755,9 +826,12 @@ const R3 = (function () {
     addMesh(body, GEO.head, skinMat, 0, HY, 0).scale.setScalar(hk);
     /* 后脑勺的头发块：前后压到 0.8、往后挪，正面留出 2 个单位的脸，
      * 否则从侧面看整颗头就是一团头发。 */
-    const hb = addMesh(body, GEO.hairBack, hairMat, 0, HY + 0.1 * hk, -0.9 * hk);
-    hb.scale.set(1.03 * hk, 1.0 * hk, 0.8 * hk);
-    addMesh(body, GEO.hairCap, hairMat, 0, HY + 0.6 * hk, 0).scale.setScalar(hk);
+    const hb = addMesh(body, GEO.hairBack, hairMat, 0, HY + 0.1 * hk, -1.35 * hk);
+    /* x 收到 0.99：1.03 那版两边的头发一直包到下颌，整张脸被头发框成一个「波波头」，
+     * 只留中间一条脸。收窄之后鬓角退到颧骨附近，还是盖住耳朵，但脸露得出来。 */
+    hb.scale.set(0.99 * hk, 1.0 * hk, 0.92 * hk);
+    const hc = addMesh(body, GEO.hairCap, hairMat, 0, HY + 0.6 * hk, 0);
+    hc.scale.setScalar(hk);
 
     /* 眼镜交给 addFace：镜片挂在眼睛上，才会跟眼位一起贴合球面。
      * 哈利那副是电影版的圆黑框（原来做成黄铜色，既不像原作，
@@ -772,49 +846,75 @@ const R3 = (function () {
       cheeks: o.kid ? mats.skin : null, smallNose: !!o.kid, smile: !!o.kid,
     });
 
-    /* 一头乱毛：所有小孩都有（小孩的头发本来就不服帖），
-     * 但闪电疤只属于哈利——不然罗恩额头上也会长出一道疤。 */
+    /* 乱毛球壳 + 闪电疤。头发本身不用在这里拼，见 GEO.hairCap / GEO.hairBack；
+     * 疤只属于哈利——不然罗恩额头上也会长出一道疤。 */
     if (o.kid) {
-      /* 招牌乱发：以前只有对称的四根圆锥，看着像打理过的大人发型。
-       * 电影版最好认的就是那颗永远梳不趴的毛球——额前一圈参差的碎发、
-       * 两侧支棱出去、脑后还有一撮翘起来的「牛舔了一口」。
-       * 坐标按 6.6 的球配好再整体乘 hk，换头围不用重新配。 */
-      const MOPS = [
-        // x,     y,    z,    rotZ,  rotX,  缩放
-        [-4.2, 6.2,  2.2,  0.70,  0.12, 1.10],
-        [-2.3, 7.0,  3.4,  0.40,  0.20, 0.92],
-        [ 0.3, 7.3,  0.8, -0.10,  0.30, 1.05],
-        [ 2.7, 7.0,  2.4, -0.50,  0.14, 0.96],
-        [ 4.4, 6.1,  0.2, -0.76, -0.06, 1.12],
-        [-4.8, 4.4, -2.8,  0.96, -0.32, 0.88],   // 两侧支出来的
-        [ 4.9, 4.2, -2.6, -0.98, -0.30, 0.86],
-        [-1.7, 5.9, -4.4,  0.28, -0.64, 0.92],   // 脑后翘起的那撮
-        [ 1.9, 6.1, -4.2, -0.32, -0.60, 0.90],
-        [-3.0, 4.8,  4.4,  0.50,  0.36, 0.72],   // 额前参差不齐的碎刘海
-        [-0.2, 5.1,  5.0,  0.06,  0.34, 0.70],
-        [ 3.3, 4.7,  4.2, -0.44,  0.38, 0.68],
-      ];
-      for (const [mx, my, mz, rz, rx, ms] of MOPS) {
-        const sp = addMesh(body, GEO.hairSpike, hairMat, mx * hk, HY + my * hk, mz * hk);
-        sp.rotation.z = rz; sp.rotation.x = rx;
-        /* 纵向只给 0.72：按原比例是四角尖尖的「海胆」，压扁一点才是蓬乱的毛 */
-        sp.scale.set(ms * hk, ms * hk * 0.72, ms * hk);
-      }
-      /* 疤要贴着额头球面，而且整块落在眉毛和发际线之间：
-       * 之前给个 (3.5, HY+3.6, 5.2) 的长条，顶端从颅骨和头发之间戳出去，像根红天线。 */
+      /* 闪电疤：两段贴球的细条拼一个「Z」，贴着额头只凸出 0.1 左右。
+       * 之前是一根 1.3 长的红方块斜立着摆上去，远看像额角插了根红天线；
+       * 现在每段都挂在一个「法线朝向」的组里，先贴球面、再在切平面里倾斜，
+       * 所以无论从哪个角度看都不会翘出脸廓。
+       * 位置在哈利的右额（画面左侧），整条压在眉毛与发际线之间。 */
       if (o.harry) {
-        const sy = 2.85;
-        const sx0 = 2.7;
-        const sz = Math.sqrt(Math.max(1, 6.6 * 6.6 - sx0 * sx0 - sy * sy));
-        const scar = addMesh(body, new THREE.BoxGeometry(0.5, 1.3, 0.4), mat(0xc0392b, { flat: false }),
-                             sx0 * hk, HY + sy * hk, sz * hk - 0.04);
-        scar.rotation.y = Math.asin(sx0 / 6.6);
-        scar.rotation.z = 0.34;
-        scar.scale.setScalar(hk);
+        const SCAR = [[-1.80, 4.02], [-2.86, 3.42], [-2.02, 2.88]];
+        const scarMat = mat(0x9d4038, { flat: false });
+        for (let i = 0; i < SCAR.length - 1; i++) {
+          const [x0, y0] = SCAR[i], [x1, y1] = SCAR[i + 1];
+          const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+          const len = Math.hypot(x1 - x0, y1 - y0);
+          const zs = Math.sqrt(Math.max(1, 6.6 * 6.6 - mx * mx - my * my));
+          const wrap = new THREE.Group();
+          wrap.position.set(mx * hk, HY + my * hk, zs * hk - 0.06);
+          wrap.rotation.y = Math.asin(mx / 6.6);
+          body.add(wrap);
+          const sgm = addMesh(wrap, new THREE.BoxGeometry(len, 0.26, 0.30), scarMat, 0, 0, 0);
+          sgm.name = 'scar';        // 冒烟测试靠这个名字认疤，别改成尺寸匹配
+          sgm.rotation.z = Math.atan2(y1 - y0, x1 - x0);
+          sgm.scale.setScalar(hk);
+        }
       }
+    }
+    /* 长发：两侧各一缕 + 后脑一片。位置按头围走，换头型不会跑偏。
+     * 用「上粗下细的扁圆柱」而不是方块：方块挂两片在耳侧，就是两块木板，
+     * 怎么看都不像头发；收一下底、压扁前后，才有发缕垂下来的样子。 */
+    if (o.longHair) {
+      /* 发缕必须挂在「头发壳外面」，不能按头皮半径放：头发壳半径约 7.85，
+       * 按 headR*0.70 摆在 5.1 那一版整缕都埋在壳里，正面完全看不见。 */
+      const lhY = HY - 6.4 * hk;
+      for (const sx of [-1, 1]) {
+        const lp = addMesh(body, GEO.longHair, hairMat, sx * P.headR * 0.98, lhY, -0.5 * hk);
+        lp.scale.set(hk * 0.88, hk, hk * 0.58);
+        lp.rotation.z = sx * 0.05;
+      }
+      const back = addMesh(body, GEO.longHair, hairMat, 0, lhY - 0.6 * hk, -P.headR * 0.66);
+      back.scale.set(hk * 2.05, hk * 0.96, hk * 0.62);
     }
     if (o.beard) {
       addMesh(body, GEO.beard, hairMat, 0, 33.6, 3.0);
+    }
+    /* 一身毛：海格是混血巨人，毛茸茸是他最好认的特征。
+     *
+     * 之前用四块 6.5 见方的大方块「贴」在肩上、袖口、前襟、袍摆——同色同材质，
+     * 在低多边形里完全读不出毛，看着像一身木头护甲，胳膊还被方块戳穿。
+     * 现在改成「一圈圈压扁的毛球」：领口、前襟、下摆、两只袖口各围一圈，
+     * 深浅两色交替，边缘才毛茸茸地参差出来。 */
+    if (o.furry) {
+      const furA = mat(hair.clone().multiplyScalar(1.55));
+      const furB = mat(hair.clone().multiplyScalar(1.05));
+      /* cy = 圈的绝对高度；rx/rz = 椭圆半径（袍子是前后压扁的，不能是正圆） */
+      const furRing = (cy, rx, rz, n, sz, parent) => {
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2 + 0.35;
+          const t = addMesh(parent || body, GEO.hairClump, i % 2 ? furA : furB,
+                            Math.cos(a) * rx, cy, Math.sin(a) * rz);
+          t.scale.set(sz, sz * 0.7, sz);
+        }
+      };
+      furRing(P.collarY - 0.6, 6.4 * bk, 5.5 * bk, 12, 1.15);        // 毛领
+      furRing(P.chestY - 1.2, 6.9 * bk, 5.0 * bk, 12, 1.00);         // 前襟
+      furRing(P.robeY - 8.6, 7.5 * bk, 6.2 * bk, 14, 1.30);          // 下摆
+      for (const arm of [armL, armR]) {
+        furRing(P.handY + 2.2, 3.4, 3.4, 7, 0.90, arm);              // 袖口
+      }
     }
     if (o.hat !== undefined && o.hat !== null) {
       addMesh(body, GEO.brim, mat(o.hat), 0, 53.7, 0);
@@ -947,9 +1047,11 @@ const R3 = (function () {
     harry: true, glasses: true, glassColor: HARRY_FRAME, kid: true, iris: 0x4a86c8,
   };
   const NPC_STYLE = {
-    hagrid: { scale: 1.32, beard: true },
-    hagrid2: { scale: 1.32, beard: true },
-    hagrid_forest: { scale: 1.32, beard: true },
+    /* 海格是混血巨人：身高按原著是哈利的两倍上下，原来 1.32 只比哈利高一点，
+     * 完全没有「得低头进门」的那种体量。1.95 配上毛领毛袖才像。 */
+    hagrid: { scale: 1.95, beard: true, furry: true },
+    hagrid2: { scale: 1.95, beard: true, furry: true },
+    hagrid_forest: { scale: 1.95, beard: true, furry: true },
     flitwick: { scale: 0.78 },
     dumbledore: { scale: 1.16, hat: 0xc9a227, hair: '#e8e8e8', beard: true },
     mcgonagall: { hat: 0x2b2b33, robe: '#2f3b3a' },
@@ -982,6 +1084,7 @@ const R3 = (function () {
       for (const k in IRIS) {
         if (n.id.indexOf(k) === 0) { o.iris = IRIS[k]; break; }
       }
+      if (BROWN_HAIR.indexOf(n.id) !== -1) o.longHair = true;   // 赫敏：一头长发
     }
     return o;
   }
@@ -1325,9 +1428,12 @@ const R3 = (function () {
     /* kid = 小孩体型（《魔法石》时期的哈利），详见 makeHumanoid 里的体型表。
      * 造型细节来自 HARRY_STYLE，和哈利 NPC 共用一份，不重复写。 */
     playerRig = makeHumanoid(Object.assign({
-      /* 略微提亮长袍：3D 逆光下深褐色会糊成一团黑 */
-      robe: '#7a5a38', hair: '#241608', skin: '#f6d0ac',
-      scarf: 0x9e1f1f, scarfStripe: 0xd8b13a, wand: true, scale: 1.15,
+      /* 略微提亮长袍：3D 逆光下深褐色会糊成一团黑。
+       * 头发同理：#241608 是「电影里的黑」，在低多边形 + 暗场景里等于一块纯黑，
+       * 每个发团的棱角全被吃掉，后脑看着就是一颗光滑的黑球。抬到 #33200f，
+       * 依旧是黑发，但明暗分得开，蓬乱感才看得出来。 */
+      robe: '#7a5a38', hair: '#33200f', skin: '#f6d0ac',
+      scarf: 0x9e1f1f, scarfStripe: 0xd8b13a, wand: true, scale: 0.95,
     }, HARRY_STYLE));
     playerRig.group.add(blobShadow(15));
     if (playerRig.wandMesh) playerRig.wandMesh.visible = false;
@@ -1536,6 +1642,7 @@ const R3 = (function () {
         };
       },
       marker() { return marker; },
+      scene() { return scene; },
       lights() { return { player: playerLight, torches: torchPool, sun: sun }; },
       zoomBy(deltaY) { onWheel({ deltaY: deltaY, preventDefault() {} }); },
       dragBy(dx, dy) {
