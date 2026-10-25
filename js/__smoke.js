@@ -788,5 +788,47 @@ for (let i = 0; i < 60; i++) firsts.add(shuffleList([0, 1, 2, 3])[0]);
 ok(firsts.size >= 3, '正确项不会永远排在第一（首位出现过 ' + firsts.size + ' 种下标）');
 ok(shuffleList([]).length === 0 && shuffleList([7]).join('') === '7', '空数组 / 单元素不报错');
 
+/* ---- 23. 决战与关卡收尾 ----
+ * 这几类 bug 一旦犯就是「玩家卡死在某个房间，永远打不通」，
+ * 而且流程测试未必每次都走到，所以在源码层面再钉一道。 */
+section('决战与关卡收尾');
+const GAME_SRC = fs.readFileSync(path.join(__dirname, 'game.js'), 'utf8');
+const CSS_SRC = fs.readFileSync(path.join(__dirname, '../css/style.css'), 'utf8');
+
+ok(!!MINIS.duel, 'MINIS 里有 duel 条目');
+ok(MINIS.duel && MINIS.duel.passFlags && MINIS.duel.passFlags.duelWon === 1,
+   'duel 通关会写 duelWon（通关画面靠它触发）');
+ok(MINIS.duel && MINIS.duel.passFlags && MINIS.duel.passFlags.duelDone === 1,
+   'duel 通关会写 duelDone（防止重复挑战）');
+/* 决斗必须走 openMini，否则拿不到 currentMini，miniSuccess 直接失效 */
+ok(/duel:\s*\(\)\s*=>\s*runDuel/.test(GAME_SRC), 'openMini 的 handlers 里注册了 duel');
+ok(!/\bif \(mId === 'duel'\)/.test(GAME_SRC), 'processLine 不再绕过 openMini 裸调 runDuel');
+
+/* 之前这些全是隐式全局，一运行就是 ReferenceError，整条通关链断掉 */
+/* 注意 runRhythmMini 在 runDuel 前面，切片方向反了会拿到空串 */
+const duelSrc = GAME_SRC.slice(GAME_SRC.indexOf('function runDuel'), GAME_SRC.indexOf('function questTarget'));
+ok(/let hpH =/.test(duelSrc), 'runDuel 里 hpH 有声明');
+ok(/let qHp =/.test(duelSrc), 'runDuel 里 qHp 有声明');
+ok(/function finish\(/.test(duelSrc), 'runDuel 里定义了 finish()');
+ok(/miniSuccess\(\);/.test(duelSrc), '决斗赢了走 miniSuccess（才会推进对话）');
+ok(/miniRetry\(/.test(duelSrc), '决斗输了给得出「再战一次」');
+
+/* 节奏环：视觉和判定必须同源 */
+ok(!/@keyframes pulse/.test(CSS_SRC), '旧的 pulse 关键帧已删除');
+ok(!/\.ring-pulse\s*\{[^}]*animation:/.test(CSS_SRC), '收缩环不挂 CSS animation（相位和判定无关）');
+const rhSrc = GAME_SRC.slice(GAME_SRC.indexOf('function runRhythmMini'), GAME_SRC.indexOf('/* --- 答题'));
+ok(/requestAnimationFrame/.test(rhSrc), '节奏环由 rAF 驱动');
+/* 绘制与判定都得读 phaseNow()，各算各的就又会对不上 */
+/* 2 次调用：tick 里画环读一次、press 里判定读一次 */
+ok((rhSrc.match(/phaseNow\(\)/g) || []).length >= 2, '绘制与判定共用同一个 phaseNow()');
+ok(/in-window/.test(CSS_SRC) && /in-window/.test(rhSrc), '判定窗口有对应的视觉高亮');
+
+/* 通关后不该还能重打 */
+const dgMap = compiled['dungeon'];
+for (const id of ['fluffy', 'ron_chess', 'quirrell']) {
+  const npc = dgMap.npcs.filter(x => x.id === id)[0];
+  ok(!!npc && typeof npc.show === 'function', '地下走廊的 ' + id + ' 有 show 条件（通关后不能再打）');
+}
+
 console.log('\n结果：' + pass + ' 通过，' + fail + ' 失败');
 process.exit(fail ? 1 : 0);

@@ -114,6 +114,14 @@ const MINIS = {
     passFlags: { quidditchDone: 1, pts: 40 },
     passDialog: 'd_after_snitch',
   },
+  /* 最终决战：之前 MINIS 里根本没有这一条，openMini('duel') 直接 return，
+   * 点了「与奇洛教授决斗！」毫无反应 —— 奇洛这关永远过不去。 */
+  duel: {
+    title: '最终决战 · 奇洛 / 伏地魔',
+    type: 'duel',
+    desc: '奇洛扯下头巾——伏地魔的脸浮现在他后脑。用你学会的咒语正面迎击！',
+    passFlags: { duelDone: 1, duelWon: 1, pts: 60 },
+  },
 };
 
 /* ---------- 地图 ---------- */
@@ -481,9 +489,10 @@ const MAPS = {
     },
     spawn: { x: 5, y: 10 },
     npcs: [
-      { id: 'fluffy', name: '弗拉菲（三头犬）', icon: '🐕', color: '#5a3a2a', hair: '#5a3a2a', x: 5, y: 10, face: 'down', dialog: 'd_fluffy' },
-      { id: 'ron_chess', name: '罗恩', icon: '🧑🦰', color: '#7a4a2a', hair: '#e04818', x: 34, y: 10, face: 'down', dialog: 'd_chess', show: s => s.flags.keysDone },
-      { id: 'quirrell', name: '奇洛教授', icon: '😖', color: '#4a3a2a', hair: '#3a2a1a', x: 50, y: 10, face: 'down', dialog: 'd_quirrell', show: s => s.flags.potionsDone },
+      /* 吹完笛子它就睡着了，不该还能再凑上去重打一遍 */
+      { id: 'fluffy', name: '弗拉菲（三头犬）', icon: '🐕', color: '#5a3a2a', hair: '#5a3a2a', x: 5, y: 10, face: 'down', dialog: 'd_fluffy', show: s => !s.flags.fluffyDone },
+      { id: 'ron_chess', name: '罗恩', icon: '🧑🦰', color: '#7a4a2a', hair: '#e04818', x: 34, y: 10, face: 'down', dialog: 'd_chess', show: s => s.flags.keysDone && !s.flags.chessDone },
+      { id: 'quirrell', name: '奇洛教授', icon: '😖', color: '#4a3a2a', hair: '#3a2a1a', x: 50, y: 10, face: 'down', dialog: 'd_quirrell', show: s => s.flags.potionsDone && !s.flags.duelDone },
     ],
     props: [
       { id: 'snare', x: 15, y: 10, icon: '🌿', label: '蠕动的藤蔓', show: s => !s.flags.snareDone, dialog: 'd_snare' },

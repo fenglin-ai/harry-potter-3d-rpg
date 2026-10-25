@@ -14,7 +14,12 @@ function makeEl(id) {
     appendChild(c) { this.children.push(c); return c; },
     removeChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); },
     insertBefore(c, ref) { this.children.push(c); return c; },
-    querySelector() { return null; },
+    /* 决斗要用 querySelector('.fill') 拿血条，返回 null 会让 refresh() 直接崩 */
+    querySelector(sel) {
+      if (!this._q) this._q = {};
+      if (!this._q[sel]) this._q[sel] = makeEl(sel);
+      return this._q[sel];
+    },
     querySelectorAll() { return []; },
     getBoundingClientRect() { return { left: 0, top: 0, width: 960, height: 540, right: 960, bottom: 540 }; },
     getContext: () => ctx,
@@ -35,7 +40,16 @@ global.requestAnimationFrame = () => 0;
 global.cancelAnimationFrame = () => {};
 global.setInterval = () => 0;
 global.clearInterval = () => {};
-global.setTimeout = () => 0;
+/* 记录型 setTimeout：平时和 () => 0 一样不执行，但决斗要手动驱动敌方回合，
+ * 所以需要能把攒下来的回调一次性放出去 */
+const pendingTimers = [];
+global.setTimeout = (fn) => { pendingTimers.push(fn); return pendingTimers.length; };
+global.clearTimeout = () => {};
+function flushTimers() {
+  for (let i = 0; i < 8 && pendingTimers.length; i++) {
+    pendingTimers.splice(0).forEach(f => { try { f(); } catch (e) {} });
+  }
+}
 
 const src = fs.readFileSync(path.join(__dirname, 'data.js'), 'utf8') + '\n' +
             fs.readFileSync(path.join(__dirname, 'game.js'), 'utf8');
@@ -267,6 +281,108 @@ applyEffects({ potionsDone: 1 });
 ok(walkTo(45, 10, 500), '穿过魔药房门 (45,10)');
 ok(walkTo(50, 10, 900), '走到奇洛教授 (50,10)');
 moveWorks('地下走廊全程可移动');
+
+// 通关后的关卡不该还能重打（fluffy 以前是唯一没写 show 条件的）
+S.flags.fluffyDone = 1;
+ok(!visibleNpcs().some(n => n.id === 'fluffy'), '三头犬睡着后不再现身，不能重打');
+S.flags.duelDone = 1;
+ok(!visibleNpcs().some(n => n.id === 'quirrell'), '奇洛被打败后不再现身，不能重打');
+S.flags.chessDone = 1;
+ok(!visibleNpcs().some(n => n.id === 'ron_chess'), '棋局结束后罗恩退场，不能重打');
+
+section('三头犬：吹笛节奏');
+freshState(); closeDialog();
+S.flags = { sorted: 1, hasStone: 1 };
+doTeleport('dungeon', 5, 10);
+finishDialog();
+interactNear();
+ok(!!dialog && dialog.id === 'd_fluffy', '三头犬对话弹出 (got ' + (dialog && dialog.id) + ')');
+
+/* 推进到「吹响木笛！」，advanceDialog 会顺手处理下一行，所以先探 */
+let fg = 0, hitFlute = false;
+while (dialog && fg++ < 20) {
+  const ln = dialog.lines[dialog.idx];
+  if (ln && ln.c) { pickChoice(ln.c[0]); continue; }
+  const next = dialog.lines[dialog.idx + 1];
+  if (next && next.m) { hitFlute = next.m === 'flute'; advanceDialog(); break; }
+  advanceDialog();
+}
+ok(hitFlute, 'd_fluffy 里存在节奏游戏触发行');
+ok(!!currentMini && currentMini.id === 'flute', '节奏小游戏开得起来');
+
+/* 把时钟钉住，模拟「照着光环按」：判定窗口是 phase >= 0.8，
+ * 也就是 t % 1100 >= 880。每次按完跨一个完整周期，同时满足 300ms 防抖。 */
+const realNow = performance.now;
+let fakeT = 0;
+performance.now = () => fakeT;
+const hpBefore = S.hp;
+for (let i = 0; i < 4 && currentMini; i++) {
+  fakeT = 1100 * (i + 1) + 900;   // phase ≈ 0.818，落在判定窗口内
+  currentMini.keyHandler();
+}
+performance.now = realNow;
+
+ok(!currentMini, '四个音符后小游戏关闭（还能重开说明没通关）');
+ok(S.flags.fluffyDone === 1, 'fluffyDone 标记写入 (got ' + S.flags.fluffyDone + ')');
+ok(!!dialog && dialog.id === 'd_after_fluffy', '推进到通关对话 (got ' + (dialog && dialog.id) + ')');
+ok(S.hp === hpBefore, '按在节拍上没有掉血 (' + hpBefore + ' → ' + S.hp + ')');
+finishDialog();
+
+section('地下走廊 · 奇洛决战与通关');
+freshState(); closeDialog();
+S.flags = { sorted: 1, hasStone: 1, fluffyDone: 1, snareDone: 1, keysDone: 1, chessDone: 1, potionsDone: 1 };
+learnSpell('stupefy'); learnSpell('incendio');
+doTeleport('dungeon', 50, 10);   // px/py 是瓦片坐标，不是像素
+finishDialog();
+
+ok(visibleNpcs().some(n => n.id === 'quirrell'), '魔药谜题完成后奇洛现身');
+interactNear();
+ok(!!dialog && dialog.id === 'd_quirrell', '弹出决战对话 (got ' + (dialog && dialog.id) + ')');
+
+/* 关键：MINIS 里没有 duel 的话 openMini 直接 return，点了这一下毫无反应 */
+ok(!!MINIS.duel && MINIS.duel.type === 'duel',
+   'MINIS 里有 duel 条目（少了它这关永远卡死）');
+
+/* 推进到「与奇洛教授决斗！」。注意 advanceDialog 会顺手把下一行也处理掉，
+ * 所以要先探下一行是不是 m 行，别等它把 mini 开了才发现 */
+let qg = 0, hitDuel = false;
+while (dialog && qg++ < 30) {
+  const ln = dialog.lines[dialog.idx];
+  if (ln && ln.c) { pickChoice(ln.c[0]); continue; }
+  const next = dialog.lines[dialog.idx + 1];
+  if (next && next.m) {
+    ok(next.m === 'duel', '对话走到「与奇洛教授决斗！」(got ' + next.m + ')');
+    hitDuel = true;
+    advanceDialog();
+    break;
+  }
+  advanceDialog();
+}
+ok(hitDuel, 'd_quirrell 里存在决斗触发行');
+ok(!!currentMini && currentMini.id === 'duel', '决斗小游戏开得起来 (got ' + (currentMini && currentMini.id) + ')');
+
+/* 打一场：把随机数钉死，让结果可复现（每次都命中，敌方固定 11 伤害）。
+ * 奇洛 100 血 / 昏昏倒地 26 伤害 → 4 次命中倒下，玩家承伤 52，不会先倒。 */
+const realRandom = Math.random;
+Math.random = () => 0;
+let dg = 0;
+while (currentMini && dg++ < 40) {
+  const kh = currentMini.keyHandler;
+  kh('space');                       // 施放昏昏倒地
+  if (!currentMini) break;           // 打赢了
+  flushTimers();                     // 敌方回合
+}
+Math.random = realRandom;
+
+ok(!currentMini, '决斗打赢后小游戏关闭');
+ok(S.flags.duelDone === 1, 'duelDone 标记写入 (got ' + S.flags.duelDone + ')');
+ok(S.flags.duelWon === 1, 'duelWon 标记写入 (got ' + S.flags.duelWon + ')');
+ok(!!dialog && dialog.id === 'd_after_duel', '推进到通关对话 (got ' + (dialog && dialog.id) + ')');
+
+/* d_after_duel 放完 → closeDialog 看到 duelWon → 放通关画面 */
+finishDialog();
+ok(S.flags.gameEnd === 1, '通关结算触发 gameEnd=1');
+ok($('credits').style.display === 'flex', '通关画面已显示 (got ' + $('credits').style.display + ')');
 
 console.log('\n结果：' + pass + ' 通过，' + fail + ' 失败');
 process.exit(fail ? 1 : 0);

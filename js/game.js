@@ -511,8 +511,7 @@ function processLine(line) {
   if (line.m) {
     const mId = line.m;
     closeDialog();
-    if (mId === 'duel') runDuel(line.mAfter);
-    else openMini(mId, line.mAfter);
+    openMini(mId, line.mAfter);
     return;
   }
   if (line.c) { $('dText').textContent = line.t || ''; showChoices(line.c); return; }
@@ -621,6 +620,7 @@ function openMini(id, after) {
     keys: () => runKeysMini(def),
     chess: () => runChessMini(def),
     snitch: () => runSnitchMini(def),
+    duel: () => runDuel(def),
   };
   (handlers[def.type] || (() => {}))();
 }
@@ -661,7 +661,10 @@ function miniSuccess() {
   sfx('success');
   $('mini').style.display = 'none';
   currentMini = null;
-  if (m.after && DIALOGS[m.after]) startDialog(m.after);
+  /* 优先用对话里写的 mAfter，没有就退到 MINIS 里的 passDialog——
+   * 少了这层兜底，任何一条「通关对话」接不上，玩家就直接卡死在那个房间。 */
+  const next = m.after || m.def.passDialog;
+  if (next && DIALOGS[next]) startDialog(next);
 }
 
 function miniRetry(msg) {
@@ -724,21 +727,45 @@ function runLevMini(def) {
   currentMini.raf = requestAnimationFrame(tick);
 }
 
-/* --- 三头犬：吹笛节奏 --- */
+/* --- 三头犬：吹笛节奏 ---
+ * 视觉和判定必须共用同一个相位。以前光环是 CSS 动画（scale .5→1 放大后消失，
+ * 1.1s 一轮），判定却读 performance.now() % 1100，两者相位毫不相干 ——
+ * 玩家照着光环按下去和盲按没区别，这关才显得「提示不明、怎么都过不去」。
+ * 现在：收缩环交给 rAF 按同一个 phase 每帧绘制，环收进金色内圈的那一瞬间
+ * 就是判定点，同时内圈会亮起来给出明确信号。 */
 function runRhythmMini(def) {
+  const CYCLE = 1100;       // 一个节拍周期
+  const WIN = 0.2;          // 判定窗口（占周期比例，约 220ms）
+  const MIN_S = 0.45;       // 环收缩到最小 = 正好套住内圈
   let n = 0;
+
+  const phaseNow = () => (performance.now() % CYCLE) / CYCLE;
+  const inWindow = (p) => p >= 1 - WIN;
+
+  miniStatus('第 1 / ' + def.success + ' 个音符：等红环收进金色内圈的一瞬间，按下空格 / 点击');
+
   const stage = document.createElement('div');
   stage.className = 'ring-stage';
   stage.innerHTML = '<div class="ring-outer"></div><div class="ring-pulse"></div><div class="ring-inner"></div>';
   miniWrap().appendChild(stage);
-  miniStatus('第 1 / ' + def.success + ' 个音符：光环缩到最小时吹响！');
+  const pulse = stage.querySelector('.ring-pulse');
+
+  function tick() {
+    if (!currentMini || currentMini.id !== 'flute' || currentMini.done) return;
+    const p = phaseNow();
+    const win = inWindow(p);
+    pulse.style.transform = 'scale(' + (1 - p * (1 - MIN_S)).toFixed(3) + ')';
+    pulse.style.opacity = win ? '1' : (0.3 + 0.55 * (1 - p)).toFixed(2);
+    stage.classList.toggle('in-window', win);
+    currentMini.raf = requestAnimationFrame(tick);
+  }
+  currentMini.raf = requestAnimationFrame(tick);
 
   const press = () => {
     if (currentMini && currentMini.id !== 'flute') return;
-    if (currentMini.lastPress && performance.now() - currentMini.lastPress < 360) return;
+    if (currentMini.lastPress && performance.now() - currentMini.lastPress < 300) return;
     currentMini.lastPress = performance.now();
-    const phase = (performance.now() % 1100) / 1100;
-    if (phase <= 0.24) {
+    if (inWindow(phaseNow())) {
       n++;
       sfx('fluteNote');
       if (n >= def.success) { miniStatus('弗拉菲的鼾声响了起来……'); miniSuccess(); return; }
@@ -1102,11 +1129,50 @@ function runSnitchMini(def) {
   currentMini.raf = requestAnimationFrame(tick);
 }
 
-/* ---------- 决斗（奇洛 / 伏地魔） ---------- */
-function runDuel(after) {
-  /* ---------- 决斗流程 ---------- */
+/* ---------- 决斗（奇洛 / 伏地魔） ----------
+ * 和别的小游戏一样走 openMini，用 miniWrap() 建 DOM、miniSuccess() 结算：
+ * 之前这个函数是直接从 processLine 里裸调的，既不经过 openMini（拿不到
+ * currentMini），又引用了一堆没声明的 DOM 变量和一个根本不存在的 finish()，
+ * 一运行就是 ReferenceError，通关链条彻底断掉。 */
+function runDuel(def) {
   const D = DUEL;
+  const w = miniWrap();
+
+  /* ---- 战斗状态（原来全是隐式全局，读的时候直接 ReferenceError） ---- */
   let over = false, busy = false;
+  let hpH = clamp(S.hp, 1, S.maxHp);
+  let qHp = D.quirrell.maxHp;
+  let mana = clamp(S.mana, 0, D.harry.maxMana);
+  let phase2 = false, defending = false;
+  const timers = [];
+
+  /* ---- DOM ---- */
+  const row = document.createElement('div');
+  row.className = 'duel-row';
+  const unit = (title) => {
+    const u = document.createElement('div');
+    u.className = 'duel-unit';
+    u.innerHTML = '<h4>' + title + '</h4><div class="duel-hp"><div class="fill"></div></div>';
+    return u;
+  };
+  const hUnit = unit('🧑 ' + D.harry.name);
+  const qUnit = unit('😖 ' + D.quirrell.name);
+  row.appendChild(hUnit);
+  row.appendChild(qUnit);
+  w.appendChild(row);
+
+  const manaLine = document.createElement('div');
+  manaLine.className = 'mini-hp';
+  w.appendChild(manaLine);
+
+  const actions = document.createElement('div');
+  actions.className = 'duel-actions';
+  w.appendChild(actions);
+
+  const log = document.createElement('div');
+  log.className = 'mini-status';
+  log.textContent = '「把石头给我，波特……」伏地魔的声音在石室里回荡。';
+  w.appendChild(log);
 
   function setLog(t) { log.textContent = t || ''; }
 
@@ -1122,10 +1188,8 @@ function runDuel(after) {
 
   /* 刷新血条 / 魔力 / 体力行 */
   function refresh() {
-    const hf = hUnit.querySelector('.fill');
-    const qf = qUnit.querySelector('.fill');
-    if (hf) hf.style.width = clamp(hpH / D.harry.maxHp * 100, 0, 100) + '%';
-    if (qf) qf.style.width = clamp(qHp / D.quirrell.maxHp * 100, 0, 100) + '%';
+    hUnit.querySelector('.fill').style.width = clamp(hpH / S.maxHp * 100, 0, 100) + '%';
+    qUnit.querySelector('.fill').style.width = clamp(qHp / D.quirrell.maxHp * 100, 0, 100) + '%';
     manaLine.textContent = '✨ 魔力 ' + mana + '/' + D.harry.maxMana +
       '　⚡ 体力 ' + hpH + '/' + S.maxHp;
     S.hp = hpH; S.mana = mana;
@@ -1133,8 +1197,8 @@ function runDuel(after) {
   }
 
   /* 敌方一次攻击，返回战报文本 */
-  function enemyStrike(heavy) {
-    const boost = (phase2 ? 1.5 : 1) * (heavy ? 1.3 : 1);
+  function enemyStrike() {
+    const boost = phase2 ? 1.35 : 1;
     const raw = Math.round((11 + Math.floor(Math.random() * 9)) * boost);
     const wasDef = defending;
     defending = false;
@@ -1148,13 +1212,13 @@ function runDuel(after) {
   function quirellTurn() {
     if (over) return;
     busy = true;
-    const msg = enemyStrike(false);
+    const msg = enemyStrike();
     mana = clamp(mana + 1, 0, D.harry.maxMana);
     refresh();
+    renderActions();
     if (hpH <= 1) { finish(msg + ' 你再也站不住了……', false); return; }
     setLog(msg);
     busy = false;
-    renderActions();
   }
 
   /* 玩家施法 */
@@ -1176,14 +1240,14 @@ function runDuel(after) {
       msg = '咒语擦着奇洛的肩膀飞了过去——打偏了！';
       sfx('whoosh');
     }
-    if (qHp <= 0) { refresh(); finish(msg + ' 奇洛倒下了！', true); return; }
-    if (!phase2 && qHp > 0 && qHp <= D.quirrell.maxHp * 0.5) {
+    refresh();
+    if (qHp <= 0) { finish(msg + ' 奇洛倒下了！', true); return; }
+    if (!phase2 && qHp <= D.quirrell.maxHp * 0.5) {
       phase2 = true;
       msg += ' 奇洛抽搐着弯下腰——伏地魔的脸从他后脑转了出来：「没用的，波特！」';
     }
     setLog(msg);
-    refresh();
-    setTimeout(quirellTurn, 480);
+    timers.push(setTimeout(quirellTurn, 480));
   }
 
   /* 玩家防御 */
@@ -1191,10 +1255,10 @@ function runDuel(after) {
     if (over || busy) return;
     busy = true;
     defending = true;
-    mana = clamp(mana + 2, 0, D.harry.maxMana);
+    mana = clamp(mana + 3, 0, D.harry.maxMana);
     setLog('你稳住呼吸，举起魔杖准备格挡……');
     refresh();
-    setTimeout(quirellTurn, 440);
+    timers.push(setTimeout(quirellTurn, 440));
   }
 
   /* 喝疗伤剂 */
@@ -1203,10 +1267,30 @@ function runDuel(after) {
     if (countItem('potion') <= 0) { setLog('背包里没有疗伤剂了。'); return; }
     busy = true;
     consumeItem('potion');
-    hpH = clamp(hpH + 25, 1, S.maxHp);
+    hpH = clamp(hpH + 30, 1, S.maxHp);
     setLog('你一口气喝下疗伤剂——伤口开始愈合。');
     refresh();
-    setTimeout(quirellTurn, 440);
+    timers.push(setTimeout(quirellTurn, 440));
+  }
+
+  /* 结算：赢了走 miniSuccess（会应用 passFlags 并推进 d_after_duel，
+   * 后面 closeDialog 看到 duelWon 才放通关画面）；输了给一次重来的机会。 */
+  function finish(msg, win) {
+    if (over) return;
+    over = true;
+    timers.forEach(clearTimeout);
+    setLog(msg);
+    actions.innerHTML = '';
+    S.hp = hpH; S.mana = mana;
+    refresh();
+    if (win) {
+      miniSuccess();
+    } else {
+      /* 残血直接重来会陷入必输循环，先回一部分体力 */
+      S.hp = clamp(Math.max(Math.round(S.maxHp * 0.7), hpH), 1, S.maxHp);
+      saveGame();
+      miniRetry('再战一次');
+    }
   }
 
   /* 行动按钮 */
@@ -1227,15 +1311,14 @@ function runDuel(after) {
       mk(sp.i + ' ' + sp.n, known ? ('魔力 ' + sp.cost + ' · 伤害 ' + sp.dmg) : '未学会',
          known && mana >= sp.cost, () => cast(key));
     }
-    mk('🛡 凝神防御', '减伤 60% · 魔力 +2', true, guard);
+    mk('🛡 凝神防御', '减伤 60% · 魔力 +3', true, guard);
     const potions = countItem('potion');
-    if (potions > 0) mk('🧪 疗伤剂 ×' + potions, '恢复 25 体力', true, drinkPotion);
+    if (potions > 0) mk('🧪 疗伤剂 ×' + potions, '恢复 30 体力', true, drinkPotion);
   }
 
   /* 空格 = 快速施放昏昏倒地 */
   currentMini.keyHandler = k => { if (k === 'space') cast('stupefy'); };
 
-  setLog('「把石头给我，波特……」伏地魔的声音在石室里回荡。');
   refresh();
   renderActions();
 }
