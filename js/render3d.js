@@ -469,6 +469,7 @@ const R3 = (function () {
     shoe: new THREE.BoxGeometry(5.2, 3.2, 7.6),
     arm: new THREE.CylinderGeometry(2.7, 3.1, 13, 8),
     hand: new THREE.SphereGeometry(2.4, 8, 6),
+    shoulder: new THREE.SphereGeometry(2.9, 8, 6),         // 圆肩，盖掉袖子顶上的平盖子（别比袖子还粗，不然成护肩）
     robe: new THREE.CylinderGeometry(6.6, 7.6, 16, 12),   // 下摆：14.5 ~ 30.5，外扩比原来小
     belt: new THREE.CylinderGeometry(6.9, 6.9, 1.9, 12),
     chest: new THREE.BoxGeometry(12.6, 9.6, 9.2),          // 上身：29.5 ~ 39.5
@@ -479,18 +480,24 @@ const R3 = (function () {
     hairCap: new THREE.SphereGeometry(7.05, 14, 9, 0, Math.PI * 2, 0, Math.PI * 0.36),
     hairBack: new THREE.SphereGeometry(7.0, 12, 9),
     hairSpike: new THREE.ConeGeometry(2.2, 4.4, 5),
-    /* 五官：眼眶（深色描边）+ 眼白 + 瞳孔 + 高光 + 眉毛 + 鼻子 + 嘴
+    /* 五官：眼眶（深色描边）+ 眼白 + 虹膜 + 瞳孔 + 高光 + 眉毛 + 鼻子 + 嘴
      * 描边是为了让眼睛在游戏远景里也能一眼看清，不然眼白会糊进肤色。
      * 尺寸都压得比较小：之前眼白 2.4、眼镜环半径 2.8，近看像贴了两张白纸。 */
     eyeSocket: new THREE.BoxGeometry(2.35, 2.5, 0.55),
     eyeWhite: new THREE.BoxGeometry(1.85, 2.0, 0.55),
+    iris: new THREE.BoxGeometry(1.72, 1.88, 0.5),      // 哈利的蓝眼珠，套在瞳孔外圈
     pupil: new THREE.BoxGeometry(0.92, 1.15, 0.55),
     glint: new THREE.BoxGeometry(0.32, 0.32, 0.35),
+    cheek: new THREE.SphereGeometry(2.1, 8, 6),        // 小孩的圆脸蛋
     brow: new THREE.BoxGeometry(2.45, 0.55, 0.55),
     nose: new THREE.BoxGeometry(1.35, 1.5, 1.4),
+    noseKid: new THREE.SphereGeometry(1.0, 8, 6),     // 小孩的小圆鼻子，比方块鼻子幼得多
     mouth: new THREE.BoxGeometry(2.6, 0.7, 0.5),
-    /* 眼镜环半径必须小于眼间距（EX = 2.55），否则两个环叠成「8」字 */
-    glasses: new THREE.TorusGeometry(1.95, 0.3, 6, 16),
+    /* 眼镜：哈利的招牌是镜片很大的圆黑框（电影版看着几乎占掉半张脸）。
+     * 环半径 1.85、管径 0.3 —— 再大就会从脸颊轮廓外侧「浮」出来，像护目镜而不是眼镜。
+     * 约束：环外径 (r + tube) * featureScale 必须小于眼间距 EX，
+     * 否则两个环在鼻梁上叠成「8」字。成人 2.15 < 2.55，小孩 2.37 < 2.85。 */
+    glasses: new THREE.TorusGeometry(1.85, 0.30, 6, 20),
     bridge: new THREE.BoxGeometry(1.1, 0.42, 0.42),
     /* 前襟：用一小段圆弧（thetaLength ≈ 11°）贴着袍身走，比贴一块平板干净得多；
      * 半径比袍身大 0.08 正好微微凸出，又不会在锥面上翘边。 */
@@ -536,16 +543,20 @@ const R3 = (function () {
     return p;
   }
 
-  /* 五官：眼眶 + 眼白 + 瞳孔 + 高光 + 眉毛 + 鼻子 + 嘴
+  /* 五官：眼眶 + 眼白 + 虹膜 + 瞳孔 + 高光 + 眉毛 + 鼻子 + 嘴（+ 小孩的圆脸蛋）
    * dir = +1 表示脸朝 +Z，-1 表示脸朝 -Z（人马用）
    *
+   * 尺寸全部参数化（R / EX / EY / featureScale）：小孩的头更大、眼睛更大，
+   * 但只要是同一套「按球面法线贴面」的算法就够用，不必维护第二份 addFace。
    * 关键点：头部是个球，直接往球面上贴一块平面方块，方块边缘会一半陷进头里、
    * 一半翘在外面，看起来像糊了张白纸。这里按眼位处球面法线把整只眼睛绕 Y 轴
    * 转到切平面方向（±asin(EX/R)），方块就贴合球面了；再顺着法线方向叠出层次。 */
   function addFace(parent, mats, hy, hz, dir, opts) {
-    const R = 6.6;            // 与 GEO.head 的半径保持一致
-    const EX = 2.55;          // 眼睛离中线的距离
-    const EY = -0.35;         // 眼睛相对头心的高度（略低于中线更卡通）
+    opts = opts || {};
+    const R = opts.R || 6.6;      // 与头部半径保持一致
+    const EX = opts.EX || 2.55;   // 眼睛离中线的距离
+    const EY = opts.EY === undefined ? -0.35 : opts.EY;   // 相对头心的高度，略低于中线更卡通
+    const fs = opts.featureScale || 1;
     /* 球面上 (x, dy) 处的 z 坐标 */
     const surf = (x, dy) => Math.sqrt(Math.max(1, R * R - x * x - dy * dy));
     const tilt = (x) => Math.asin(Math.min(1, Math.abs(x) / R)) * Math.sign(x || 1);
@@ -559,31 +570,65 @@ const R3 = (function () {
       const eye = new THREE.Group();
       eye.position.set(sx * EX, EY, surf(EX, EY));
       eye.rotation.y = tilt(sx * EX);
+      /* 整只眼睛等比放大：因为放大的是 group 内部的子件，贴面的 position 不受影响 */
+      eye.scale.setScalar(fs);
       face.add(eye);
 
       /* 局部 z 轴 = 该点的法线方向，所以 0 就是球面，正数往外凸 */
       addMesh(eye, GEO.eyeSocket, mats.eyeLine, 0, 0, -0.16);
       addMesh(eye, GEO.eyeWhite, mats.eyeW, 0, 0, -0.08);
-      addMesh(eye, GEO.pupil, mats.eyeB, 0, -0.05, 0);
+      /* 虹膜 + 缩小的瞳孔：只有哈利配。原来整块近黑的瞳孔近看才能认出是眼睛，
+       * 远看就是两颗豆子——既看不出年龄，也认不出是哈利。电影版的招牌恰恰是
+       * 圆框黑眼镜底下那双蓝眼睛。 */
+      if (mats.eyeI) addMesh(eye, GEO.iris, mats.eyeI, 0, -0.02, -0.02);
+      const pp = addMesh(eye, GEO.pupil, mats.eyeB, 0, -0.05, 0.04);
+      if (mats.eyeI) pp.scale.set(0.54, 0.62, 1);   // 有了虹膜，瞳孔要收进去才是眼珠不是豆子
       /* 高光做成眼白外上角的小点：压在瞳孔上会把瞳孔啃掉一个角，看着像在斜视 */
       addMesh(eye, GEO.glint, mats.eyeW, sx * 0.70, 0.78, 0.1);
 
       if (opts.glasses) {
-        addMesh(eye, GEO.glasses, opts.glasses, 0, 0, 0.5);
+        /* z 只给 0.34：镜框前移太多会脱开脸颊轮廓，远看像一副护目镜 */
+        addMesh(eye, GEO.glasses, opts.glasses, 0, 0, 0.34);
       }
 
-      const by = EY + 2.15;
+      /* 眉毛压在镜框上沿之上。原来按 2.15 抬，正好被镜框盖掉半边，
+       * 结果脸上只剩两个大圈，神情全靠嘴在撑。 */
+      const by = EY + 2.36 * fs;
       const brow = addMesh(face, GEO.brow, mats.hair, sx * EX, by, surf(EX, by) - 0.1);
       brow.rotation.y = tilt(sx * EX);
-      brow.rotation.z = -0.12 * sx;
+      /* 倾斜别太大：0.12 挑出来是「皱眉」，0.05 才是小孩那种松垮的眉形 */
+      brow.rotation.z = -0.05 * sx;
+      brow.scale.setScalar(fs);
     }
 
     if (opts.glasses) {
       addMesh(face, GEO.bridge, opts.glasses, 0, EY + 0.1, surf(0, EY) + 0.02);
     }
 
-    addMesh(face, GEO.nose, mats.nose, 0, EY - 1.15, surf(0, EY - 1.15) - 0.2);
-    addMesh(face, GEO.mouth, mats.mouth, 0, EY - 2.45, surf(0, EY - 2.45) - 0.12);
+    if (opts.smallNose) {
+      /* 小圆鼻子：小孩的鼻梁还没长起来，一个方楞块反而显老。
+       * 但也不能做成一颗凸出来的球——那是个小丑鼻。压扁、贴回脸上。 */
+      const nk = addMesh(face, GEO.noseKid, mats.nose, 0, EY - 1.2 * fs, surf(0, EY - 1.2 * fs) - 0.28);
+      nk.scale.set(fs * 1.12, fs * 0.62, fs * 0.5);
+    } else {
+      addMesh(face, GEO.nose, mats.nose, 0, EY - 1.15 * fs, surf(0, EY - 1.15 * fs) - 0.2);
+    }
+    /* 嘴：一条短平的小红条就够了。
+     * 试过在两端加两块斜方块拼「嘴角上扬」，结果低多边形下直接读成小胡子——
+     * 这种近似五官的东西宁可少做一层。 */
+    const mo = addMesh(face, GEO.mouth, mats.mouth, 0, EY - 2.4 * fs, surf(0, EY - 2.4 * fs) - 0.12);
+    mo.scale.set(fs * (opts.smile ? 0.72 : 1), fs * (opts.smile ? 0.85 : 1), fs);
+
+    /* 圆脸蛋：小孩最重要的一张「幼态」牌。
+     * 但球永远会在侧脸鼓出一颗肉球，所以横向压到「刚好贴住球的切线」为止，
+     * 只留一点点软度。真正的「幼儿感」是靠头大 + 眼大撑起来的，不是靠腮帮。 */
+    if (opts.cheeks) {
+      for (const sx of [-1, 1]) {
+        const cx = sx * EX * 1.35, cy = EY - 1.35 * fs;
+        const ck = addMesh(face, GEO.cheek, opts.cheeks, cx, cy, surf(cx, cy) - 0.9 * fs);
+        ck.scale.set(fs * 0.55, fs * 0.72, fs * 0.45);
+      }
+    }
   }
 
   /* 人形：皮鞋 + 裤腿 + 长袍（收摆 + 腰带）+ 上身 + 围巾 + 头 + 五官 + 头发 */
@@ -594,6 +639,40 @@ const R3 = (function () {
     const skin = new THREE.Color(o.skin || '#e8b98a');
     const ghost = !!o.ghost;
     const oRobe = ghost ? 0.55 : 1;
+
+    /* 体型表：kid =《魔法石》时期的哈利（11 岁），其余是成人。
+     *
+     * 小孩绝不等于成人等比缩小。要让一个方块人「显小」，改的是比例而不是尺寸：
+     *   1. 头占身体比重更大（头半径 +11%，身子纵向 -9%）——这是最强的一张牌
+     *   2. 五官整体放大一号、位置往「脸的下半部」挪，眼睛占比明显变大
+     *   3. 肩更窄（-14%）、腿更短，站姿上有小孩的局促感
+     * 两条路径共用同一段建模代码，只有这张表的数字不同。 */
+    const P = o.kid ? {
+      headR: 7.35, headY: 45.4, bodyX: 0.88,
+      hipY: 12.6, hipX: 3.1, legY: -5.59, legSy: 0.86, shoeY: -10.8,
+      robeY: 20.6, robeSy: 0.90, beltY: 27.8,
+      chestY: 32.3, chestYs: 1.02,
+      collarY: 37.4, collarSy: 1.10, scarfY: 38.0, stripeY: 36.7,
+      shX: 6.1, shY: 34.8, armSy: 0.88, armY: -5.72, handY: -12.4,
+      EX: 2.85, EY: -0.45, fs: 1.10, topY: 54,
+      wandX: 8.4, wandY: 26.2, wandS: 0.88,
+    } : {
+      headR: 6.6, headY: 46.2, bodyX: 1,
+      hipY: 14, hipX: 3.4, legY: -6.5, legSy: 1, shoeY: -12.2,
+      robeY: 22.5, robeSy: 1, beltY: 30.4,
+      chestY: 34.5, chestYs: 1,
+      collarY: 39.8, collarSy: 1, scarfY: 40.6, stripeY: 39.3,
+      shX: 7.6, shY: 37.5, armSy: 1, armY: -6.5, handY: -13.9,
+      EX: 2.55, EY: -0.35, fs: 1, topY: 56,
+      wandX: 9.6, wandY: 28.5, wandS: 1,
+    };
+    /* 两个独立的缩放，别混用：
+     *   hk = 头部放大（头 / 头发 / 五官 / 疤）
+     *   bk = 躯干收窄（袍身 / 腰带 / 胸腔 / 领子 / 围巾）
+     * 一开始躯干也乘了 hk，结果小孩的胸比成人还宽 11%，两条胳膊整根埋进
+     * 胸腔里，侧面只剩一整块方砖——「显小」必须靠头大，不能靠身体变壮。 */
+    const hk = P.headR / 6.6;
+    const bk = P.bodyX;
 
     const g = new THREE.Group();
     const body = new THREE.Group();
@@ -615,74 +694,124 @@ const R3 = (function () {
       eyeB: mat(0x1d1409, { flat: false, transparent: ghost, opacity: ghost ? 0.7 : 1 }),
       eyeLine: mat(skin.clone().multiplyScalar(0.45), { flat: false, transparent: ghost, opacity: ghost ? 0.7 : 1 }),
       nose: mat(skin.clone().multiplyScalar(0.86), { flat: false }),
-      mouth: mat(0x8c3a2e, { flat: false }),
+      /* 小孩的唇色淡一点：深铁锈红配平直嘴型会把神情拉得很沉 */
+      mouth: mat(o.kid ? 0xb2604f : 0x8c3a2e, { flat: false }),
     };
+    /* 虹膜：加一点自发光，远处的角色也能认出眼珠颜色，不会糊成两块白。
+     * 和 kid 解耦——体型是体型，瞳色是瞳色。 */
+    if (o.iris !== undefined && o.iris !== null) {
+      const ic = new THREE.Color(o.iris);
+      mats.eyeI = mat(o.iris, { flat: false, emissive: ic.clone().multiplyScalar(0.16).getHex() });
+    }
 
-    /* --- 腿与鞋：髋部 y=14 为轴，裤脚下面露出皮鞋 --- */
-    const legL = joint(body, -3.4, 14, 0);
-    addMesh(legL, GEO.leg, darkMat, 0, -6.5, 0);
-    addMesh(legL, GEO.shoe, shoeMat, 0, -12.2, 1.6);
-    const legR = joint(body, 3.4, 14, 0);
-    addMesh(legR, GEO.leg, darkMat, 0, -6.5, 0);
-    addMesh(legR, GEO.shoe, shoeMat, 0, -12.2, 1.6);
+    /* --- 腿与鞋：髋部为轴，裤脚下面露出皮鞋 --- */
+    const legL = joint(body, -P.hipX, P.hipY, 0);
+    const legLMesh = addMesh(legL, GEO.leg, darkMat, 0, P.legY, 0);
+    legLMesh.scale.y = P.legSy;
+    addMesh(legL, GEO.shoe, shoeMat, 0, P.shoeY, 1.6);
+    const legR = joint(body, P.hipX, P.hipY, 0);
+    const legRMesh = addMesh(legR, GEO.leg, darkMat, 0, P.legY, 0);
+    legRMesh.scale.y = P.legSy;
+    addMesh(legR, GEO.shoe, shoeMat, 0, P.shoeY, 1.6);
 
     /* --- 长袍：下摆只到膝盖上方，配上腰带和前襟 ---
      * z 方向压扁到 0.82：人的前后本来就比左右薄，圆筒不压会显得像裙子。 */
-    const robeMesh = addMesh(body, GEO.robe, robeMat, 0, 22.5, 0);
-    robeMesh.scale.z = 0.82;
-    const placketMesh = addMesh(body, GEO.placket, seamMat, 0, 22.5, 0);
-    placketMesh.scale.z = 0.82;
+    const robeMesh = addMesh(body, GEO.robe, robeMat, 0, P.robeY, 0);
+    robeMesh.scale.set(bk, P.robeSy, 0.82);
+    const placketMesh = addMesh(body, GEO.placket, seamMat, 0, P.robeY, 0);
+    placketMesh.scale.set(bk, P.robeSy, 0.82);
 
-    const beltMesh = addMesh(body, GEO.belt, beltMat, 0, 30.4, 0);
-    beltMesh.scale.z = 0.84;
+    const beltMesh = addMesh(body, GEO.belt, beltMat, 0, P.beltY, 0);
+    beltMesh.scale.set(bk, 1, 0.84);
 
-    addMesh(body, GEO.chest, robeMat, 0, 34.5, 0);
-    addMesh(body, GEO.lapel, seamMat, 0, 34.5, 4.62);
-    const collarMesh = addMesh(body, GEO.collar, robeMat, 0, 39.8, 0);
-    collarMesh.scale.z = 0.8;
+    addMesh(body, GEO.chest, robeMat, 0, P.chestY, 0).scale.set(bk, P.chestYs, bk);
+    addMesh(body, GEO.lapel, seamMat, 0, P.chestY, 4.62 * bk).scale.set(1, P.chestYs, 1);
+    const collarMesh = addMesh(body, GEO.collar, robeMat, 0, P.collarY, 0);
+    collarMesh.scale.set(bk, P.collarSy, 0.8);
 
-    /* --- 手臂：肩部 y=37.5 为轴，末端加手。袖子用暗一档的色，和躯干分开 --- */
-    const armL = joint(body, -7.6, 37.5, 0);
-    addMesh(armL, GEO.arm, darkMat, 0, -6.5, 0);
-    addMesh(armL, GEO.hand, skinMat, 0, -13.9, 0);
-    const armR = joint(body, 7.6, 37.5, 0);
-    addMesh(armR, GEO.arm, darkMat, 0, -6.5, 0);
-    addMesh(armR, GEO.hand, skinMat, 0, -13.9, 0);
+    /* --- 手臂：肩部为轴，末端加手。袖子用暗一档的色，和躯干分开 ---
+     * 圆肩球是必须的：圆柱顶端那个平盖子本来露在胸腔外面，
+     * 侧面看就是两块搁板。球心要往下挪半格，让球顶和胸腔顶齐平——
+     * 摆在关节上会高出胸腔一截，又变成「护肩」。 */
+    const armL = joint(body, -P.shX, P.shY, 0);
+    addMesh(armL, GEO.shoulder, darkMat, 0, -0.55, 0);
+    const armLMesh = addMesh(armL, GEO.arm, darkMat, 0, P.armY, 0);
+    armLMesh.scale.y = P.armSy;
+    addMesh(armL, GEO.hand, skinMat, 0, P.handY, 0);
+    const armR = joint(body, P.shX, P.shY, 0);
+    addMesh(armR, GEO.shoulder, darkMat, 0, -0.55, 0);
+    const armRMesh = addMesh(armR, GEO.arm, darkMat, 0, P.armY, 0);
+    armRMesh.scale.y = P.armSy;
+    addMesh(armR, GEO.hand, skinMat, 0, P.handY, 0);
 
     /* 学院围巾：套在袍领外面一圈，金条纹压在围巾下沿，别单独立在胸前当地毯 */
     if (o.scarf) {
-      addMesh(body, GEO.scarf, mat(o.scarf), 0, 40.6, 0).scale.z = 0.85;
-      addMesh(body, GEO.stripe, mat(o.scarfStripe || 0xc9a227), 0, 39.3, 0).scale.z = 0.85;
+      addMesh(body, GEO.scarf, mat(o.scarf), 0, P.scarfY, 0).scale.set(bk, 1, 0.85);
+      addMesh(body, GEO.stripe, mat(o.scarfStripe || 0xc9a227), 0, P.stripeY, 0).scale.set(bk, 1, 0.85);
     }
 
     /* --- 头 --- */
-    const HY = 46.2;
-    addMesh(body, GEO.head, skinMat, 0, HY, 0);
+    const HY = P.headY;
+    addMesh(body, GEO.head, skinMat, 0, HY, 0).scale.setScalar(hk);
     /* 后脑勺的头发块：前后压到 0.8、往后挪，正面留出 2 个单位的脸，
      * 否则从侧面看整颗头就是一团头发。 */
-    const hb = addMesh(body, GEO.hairBack, hairMat, 0, HY + 0.1, -0.9);
-    hb.scale.set(1.03, 1.0, 0.8);
-    addMesh(body, GEO.hairCap, hairMat, 0, HY + 0.6, 0);
+    const hb = addMesh(body, GEO.hairBack, hairMat, 0, HY + 0.1 * hk, -0.9 * hk);
+    hb.scale.set(1.03 * hk, 1.0 * hk, 0.8 * hk);
+    addMesh(body, GEO.hairCap, hairMat, 0, HY + 0.6 * hk, 0).scale.setScalar(hk);
 
-    /* 眼镜交给 addFace：镜片挂在眼睛上，才会跟眼位一起贴合球面 */
-    const gm = o.glasses ? mat(0xb9922f, { metalness: 0.5, roughness: 0.4, flat: false }) : null;
-    addFace(body, mats, HY, 0, 1, { glasses: gm });
+    /* 眼镜交给 addFace：镜片挂在眼睛上，才会跟眼位一起贴合球面。
+     * 哈利那副是电影版的圆黑框（原来做成黄铜色，既不像原作，
+     * 又和本来就偏黄的肤色糊在一起）。加一点金属度让它在暗场景里还能反光。 */
+    const gm = o.glasses
+      ? mat(o.glassColor !== undefined ? o.glassColor : 0xb9922f,
+            { metalness: o.glassColor !== undefined ? 0.35 : 0.5, roughness: 0.35, flat: false })
+      : null;
+    addFace(body, mats, HY, 0, 1, {
+      glasses: gm,
+      R: P.headR, EX: P.EX, EY: P.EY, featureScale: P.fs,
+      cheeks: o.kid ? mats.skin : null, smallNose: !!o.kid, smile: !!o.kid,
+    });
 
-    if (o.harry) {
-      /* 乱糟糟的头发 + 闪电疤 */
-      const spikes = [[-3.6, 6.5, 2.6, 0.62, 0], [3.4, 6.6, 2.0, -0.58, 0], [0.2, 6.9, -1.6, 0.1, -0.42], [-1.2, 6.9, 3.4, 0.28, 0.3]];
-      for (const [sx, sy, sz, rz, rx] of spikes) {
-        const sp = addMesh(body, GEO.hairSpike, hairMat, sx, HY + sy, sz);
+    /* 一头乱毛：所有小孩都有（小孩的头发本来就不服帖），
+     * 但闪电疤只属于哈利——不然罗恩额头上也会长出一道疤。 */
+    if (o.kid) {
+      /* 招牌乱发：以前只有对称的四根圆锥，看着像打理过的大人发型。
+       * 电影版最好认的就是那颗永远梳不趴的毛球——额前一圈参差的碎发、
+       * 两侧支棱出去、脑后还有一撮翘起来的「牛舔了一口」。
+       * 坐标按 6.6 的球配好再整体乘 hk，换头围不用重新配。 */
+      const MOPS = [
+        // x,     y,    z,    rotZ,  rotX,  缩放
+        [-4.2, 6.2,  2.2,  0.70,  0.12, 1.10],
+        [-2.3, 7.0,  3.4,  0.40,  0.20, 0.92],
+        [ 0.3, 7.3,  0.8, -0.10,  0.30, 1.05],
+        [ 2.7, 7.0,  2.4, -0.50,  0.14, 0.96],
+        [ 4.4, 6.1,  0.2, -0.76, -0.06, 1.12],
+        [-4.8, 4.4, -2.8,  0.96, -0.32, 0.88],   // 两侧支出来的
+        [ 4.9, 4.2, -2.6, -0.98, -0.30, 0.86],
+        [-1.7, 5.9, -4.4,  0.28, -0.64, 0.92],   // 脑后翘起的那撮
+        [ 1.9, 6.1, -4.2, -0.32, -0.60, 0.90],
+        [-3.0, 4.8,  4.4,  0.50,  0.36, 0.72],   // 额前参差不齐的碎刘海
+        [-0.2, 5.1,  5.0,  0.06,  0.34, 0.70],
+        [ 3.3, 4.7,  4.2, -0.44,  0.38, 0.68],
+      ];
+      for (const [mx, my, mz, rz, rx, ms] of MOPS) {
+        const sp = addMesh(body, GEO.hairSpike, hairMat, mx * hk, HY + my * hk, mz * hk);
         sp.rotation.z = rz; sp.rotation.x = rx;
+        /* 纵向只给 0.72：按原比例是四角尖尖的「海胆」，压扁一点才是蓬乱的毛 */
+        sp.scale.set(ms * hk, ms * hk * 0.72, ms * hk);
       }
       /* 疤要贴着额头球面，而且整块落在眉毛和发际线之间：
        * 之前给个 (3.5, HY+3.6, 5.2) 的长条，顶端从颅骨和头发之间戳出去，像根红天线。 */
-      const sy = 2.85;
-      const sx0 = 2.7;
-      const sz = Math.sqrt(Math.max(1, 6.6 * 6.6 - sx0 * sx0 - sy * sy));
-      const scar = addMesh(body, new THREE.BoxGeometry(0.5, 1.3, 0.4), mat(0xc0392b, { flat: false }), sx0, HY + sy, sz - 0.04);
-      scar.rotation.y = Math.asin(sx0 / 6.6);
-      scar.rotation.z = 0.34;
+      if (o.harry) {
+        const sy = 2.85;
+        const sx0 = 2.7;
+        const sz = Math.sqrt(Math.max(1, 6.6 * 6.6 - sx0 * sx0 - sy * sy));
+        const scar = addMesh(body, new THREE.BoxGeometry(0.5, 1.3, 0.4), mat(0xc0392b, { flat: false }),
+                             sx0 * hk, HY + sy * hk, sz * hk - 0.04);
+        scar.rotation.y = Math.asin(sx0 / 6.6);
+        scar.rotation.z = 0.34;
+        scar.scale.setScalar(hk);
+      }
     }
     if (o.beard) {
       addMesh(body, GEO.beard, hairMat, 0, 33.6, 3.0);
@@ -694,13 +823,14 @@ const R3 = (function () {
 
     let wandMesh = null;
     if (o.wand) {
-      wandMesh = addMesh(body, GEO.wand, mat(0x8a6a3a, { flat: false }), 9.6, 28.5, 3.2);
+      wandMesh = addMesh(body, GEO.wand, mat(0x8a6a3a, { flat: false }), P.wandX, P.wandY, 3.2 * hk);
       wandMesh.rotation.z = -0.38;
       wandMesh.rotation.x = -0.16;
+      wandMesh.scale.setScalar(P.wandS);
     }
 
     g.scale.setScalar(s);
-    const topY = (o.hat !== undefined && o.hat !== null) ? 68 : 56;
+    const topY = (o.hat !== undefined && o.hat !== null) ? 68 : P.topY;
     return { group: g, body, parts: { legL, legR, armL, armR }, wandMesh, height: topY * s, ghost };
   }
 
@@ -795,7 +925,27 @@ const R3 = (function () {
     return { group: g, body, parts: {}, heads, height: HUMAN_H * s * 0.9 };
   }
 
-  /* ---------------- NPC 外观配置 ---------------- */
+  /* ---------------- NPC 外观配置 ----------------
+   * HARRY_FRAME：电影版那副圆黑框。原来用黄铜色既不还原，又和偏黄的肤色糊在一起。
+   *
+   * STUDENTS：一年级新生，都按小孩体型建。不能简单用 /^ron/ 匹配——
+   * ron_mum 是罗恩的妈妈，是成年人。 */
+  const HARRY_FRAME = 0x1c1f28;
+  const STUDENTS = [
+    'ron_train', 'ron_castle', 'ron_hall', 'ron_class', 'ron_chess',
+    'hermione_train', 'hermione_castle', 'hermione_hall', 'hermione_class',
+    'neville_train', 'malfoy_diagon', 'malfoy_pitch', 'malfoy_station',
+  ];
+  /* 瞳色：小孩统一加上虹膜层，眼睛才不是两颗黑豆；成人保持原样。
+   * 键是 id 前缀（ron_train / ron_chess … 都命中 ron）。 */
+  const IRIS = {
+    ron: 0x5f92c8, hermione: 0x8a5c39, neville: 0x6a5a48, malfoy: 0x93a3b0,
+  };
+  /* 哈利的造型只在这一处定义，玩家角色和「站在城堡里的哈利 NPC」共用同一份，
+   * 免得改了一边忘了另一边（比如只给玩家换了瞳色）。 */
+  const HARRY_STYLE = {
+    harry: true, glasses: true, glassColor: HARRY_FRAME, kid: true, iris: 0x4a86c8,
+  };
   const NPC_STYLE = {
     hagrid: { scale: 1.32, beard: true },
     hagrid2: { scale: 1.32, beard: true },
@@ -824,7 +974,15 @@ const R3 = (function () {
     Object.assign(o, NPC_STYLE[n.id] || {});
     if (RED_HAIR.indexOf(n.id) !== -1) o.hair = '#e04818';
     if (BROWN_HAIR.indexOf(n.id) !== -1) o.hair = '#7a3a20';
-    if (n.id === 'harry' || n.id === 'harry_castle') { o.harry = true; o.glasses = true; }
+    if (n.id === 'harry' || n.id === 'harry_castle') {
+      Object.assign(o, HARRY_STYLE);
+    } else if (STUDENTS.indexOf(n.id) !== -1) {
+      /* 一年级新生都跟哈利同样是小孩体型，否则主角变小、同学还是大人，一眼就出戏 */
+      o.kid = true;
+      for (const k in IRIS) {
+        if (n.id.indexOf(k) === 0) { o.iris = IRIS[k]; break; }
+      }
+    }
     return o;
   }
 
@@ -1164,12 +1322,13 @@ const R3 = (function () {
   /* ---------------- 玩家 ---------------- */
   function buildPlayer() {
     if (playerRig) disposeNode(playerRig.group);
-    playerRig = makeHumanoid({
+    /* kid = 小孩体型（《魔法石》时期的哈利），详见 makeHumanoid 里的体型表。
+     * 造型细节来自 HARRY_STYLE，和哈利 NPC 共用一份，不重复写。 */
+    playerRig = makeHumanoid(Object.assign({
       /* 略微提亮长袍：3D 逆光下深褐色会糊成一团黑 */
-      robe: '#7a5a38', hair: '#3d2713', skin: '#f2c9a4',
-      glasses: true, harry: true, scarf: 0x9e1f1f, scarfStripe: 0xd8b13a,
-      wand: true, scale: 1.15,
-    });
+      robe: '#7a5a38', hair: '#241608', skin: '#f6d0ac',
+      scarf: 0x9e1f1f, scarfStripe: 0xd8b13a, wand: true, scale: 1.15,
+    }, HARRY_STYLE));
     playerRig.group.add(blobShadow(15));
     if (playerRig.wandMesh) playerRig.wandMesh.visible = false;
     actorRoot.add(playerRig.group);
@@ -1390,7 +1549,7 @@ const R3 = (function () {
         return { meshes: meshes, npcs: npcRigs.length, props: propRigs.length, doors: doorRigs.length };
       },
       /* 造型调试用：单独产出一个角色模型，供预览页 / 截图工具使用 */
-      makeHumanoid, makeCentaur, makeDog,
+      makeHumanoid, makeCentaur, makeDog, npcStyle,
       playerRig() { return playerRig; },
     },
   };
