@@ -90,20 +90,114 @@ function sfx(kind) {
   } catch (e) { /* 音频异常静默 */ }
 }
 
-/* 背景音乐：原创轻柔 3/4 拍魔法风循环（A 小调五声音阶，音乐盒音色） */
-const BEAT = 0.34;
-const MUSIC = [76, 72, 69, 67, 69, 72, 76, 72, 69, 67, 64, 60, 62, 65, 69, 67, 64, 60, 69, 72, 76, 69, null, 64];
-const BASS  = [57, 55, 57, 55, 53, 55, 57, 57];
+/* ---------- 背景音乐 ----------
+ * 原创「魔法音乐盒」三拍子循环：C 大调（明亮、适合儿童）+ 每小节铺一层
+ * 弦垫（pad），主旋律用音乐盒/钢片琴音色，配一点点延迟回声做出大厅感。
+ * 全部用 WebAudio 实时合成，不引入任何音频文件。 */
+const BEAT = 0.42;                       // 三拍子，约 143 BPM，慢一点更梦幻
+/* 每小节：根音（贝斯）+ 和弦（pad / 副拍）+ 三个旋律音（C 大调 I–vi–IV–V） */
+const BARS = [
+  { root: 48, chord: [60, 64, 67], mel: [76, 79, 84] },  // C
+  { root: 45, chord: [57, 60, 64], mel: [81, 79, 76] },  // Am
+  { root: 41, chord: [53, 57, 60], mel: [77, 81, 84] },  // F
+  { root: 43, chord: [55, 59, 62], mel: [86, 83, 79] },  // G
+  { root: 48, chord: [60, 64, 67], mel: [76, 79, 84] },  // C
+  { root: 45, chord: [57, 60, 64], mel: [84, 83, 81] },  // Am
+  { root: 41, chord: [53, 57, 60], mel: [81, 79, 77] },  // F
+  { root: 43, chord: [55, 59, 62], mel: [79, 77, 74] },  // G → 回到 C
+];
+
 function midiHz(n) { return 440 * Math.pow(2, (n - 69) / 12); }
-let musicTimer = null, mi = 0, mtime = 0;
+
+/* 音乐总线：干声 + 一路带反馈的延迟，做出「空荡大厅」的魔法残响 */
+let musicBus = null, musicEcho = null;
+function ensureMusicBus() {
+  if (musicBus || !actx) return;
+  musicBus = actx.createGain();
+  musicBus.gain.value = 0.85;
+  musicBus.connect(actx.destination);
+
+  const delay = actx.createDelay(1.0);
+  delay.delayTime.value = 0.34;
+  const fb = actx.createGain(); fb.gain.value = 0.26;
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
+  const wet = actx.createGain(); wet.gain.value = 0.22;
+  delay.connect(fb); fb.connect(delay);
+  delay.connect(lp); lp.connect(wet); wet.connect(actx.destination);
+  musicBus.connect(delay);
+  musicEcho = delay;
+}
+
+/* 钢片琴 / 音乐盒：几个非整数泛音快速衰减，听起来"亮而软" */
+function bell(freq, t, dur, vol) {
+  if (!actx || !musicBus) return;
+  const partials = [[1, 1], [2.01, 0.36], [3.03, 0.16], [4.97, 0.07]];
+  for (const [mul, amp] of partials) {
+    const o = actx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(freq * mul, t);
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(Math.max(vol * amp, 0.0002), t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur * (1 - 0.13 * mul));
+    o.connect(g); g.connect(musicBus);
+    o.start(t); o.stop(t + dur + 0.08);
+  }
+}
+
+/* 弦垫：慢起慢落的长音，三个和弦音微失谐叠在一起更像合奏 */
+function padChord(notes, t, dur, vol) {
+  if (!actx || !musicBus) return;
+  notes.forEach((n, i) => {
+    const o = actx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(midiHz(n), t);
+    if (o.detune) o.detune.setValueAtTime((i - 1) * 6, t);
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.34);
+    g.gain.linearRampToValueAtTime(vol * 0.7, t + dur * 0.75);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.4);
+    o.connect(g); g.connect(musicBus);
+    o.start(t); o.stop(t + dur + 0.5);
+  });
+}
+
+function bassNote(freq, t, dur, vol) {
+  if (!actx || !musicBus) return;
+  const o = actx.createOscillator();
+  o.type = 'triangle';
+  o.frequency.setValueAtTime(freq, t);
+  const lp = actx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 620;
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.04);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(lp); lp.connect(g); g.connect(musicBus);
+  o.start(t); o.stop(t + dur + 0.05);
+}
+
+let musicTimer = null, mBeat = 0, mtime = 0;
 function pumpMusic() {
   if (!actx || actx.state !== 'running') return;
-  while (mtime < actx.currentTime + 0.5) {
-    const idx = mi % MUSIC.length;
-    const f = MUSIC[idx];
-    if (f) tone2(midiHz(f), mtime, 0.3, 0.05);
-    if (idx % 3 === 0) tone(midiHz(BASS[(idx / 3) % BASS.length]), mtime, 0.55, 0.032, 'triangle');
-    mi++;
+  ensureMusicBus();
+  if (!mtime) mtime = actx.currentTime + 0.2;
+  while (mtime < actx.currentTime + 0.7) {
+    const bar = BARS[Math.floor(mBeat / 3) % BARS.length];
+    const beat = mBeat % 3;
+    if (beat === 0) {
+      /* 每小节第 1 拍：主音 + 贝斯 + 铺底和弦 + 一小串闪光琶音 */
+      bell(midiHz(bar.mel[0]), mtime, 1.1, 0.05);
+      bassNote(midiHz(bar.root), mtime, 1.5, 0.05);
+      padChord(bar.chord, mtime, BEAT * 3, 0.017);
+      bar.chord.forEach((n, i) => bell(midiHz(n + 24), mtime + 0.1 + i * 0.06, 0.6, 0.014));
+    } else {
+      bell(midiHz(bar.mel[beat]), mtime, 0.85, 0.042);
+      /* 第 2、3 拍轻轻补一下和弦，像弹拨伴奏 */
+      bar.chord.forEach(n => bell(midiHz(n + 12), mtime, 0.42, 0.009));
+    }
+    mBeat++;
     mtime += BEAT;
   }
 }
@@ -111,11 +205,13 @@ function startMusic() {
   if (!soundOn) return;
   if (musicTimer) return;
   ensureAudio();
+  if (actx && actx.state !== 'running') actx.resume().catch(() => {});
   musicTimer = setInterval(pumpMusic, 120);
+  pumpMusic();
 }
 function stopMusic() {
   if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }
-  mi = 0; mtime = 0;
+  mBeat = 0; mtime = 0;
 }
 function toggleSound() {
   soundOn = !soundOn;
@@ -659,9 +755,22 @@ function runRhythmMini(def) {
   currentMini.clickCleanup = () => w.removeEventListener('click', press);
 }
 
-/* --- 答题（魔鬼网 / 魔药谜题 / 魔药课） --- */
+/* --- 答题（魔鬼网 / 魔药谜题 / 魔药课） ---
+ * 每次进入都把选项顺序打乱，正确答案不会永远停在第一个按钮上。
+ * 打乱的是「显示顺序」，判分仍然用原始下标，所以答案本身不受影响。 */
+function shuffleList(ary) {
+  const a = ary.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
 function runQuizMini(def) {
   let qi = 0;
+  /* 题目顺序也随机一下，重玩时不会背答案 */
+  const questions = shuffleList(def.questions);
   const status = document.createElement('div');
   status.className = 'mini-status';
   miniWrap().appendChild(status);
@@ -671,19 +780,21 @@ function runQuizMini(def) {
   miniWrap().appendChild(hpLine);
 
   function renderQ() {
-    if (qi >= def.questions.length) { miniSuccess(); return; }
-    const q = def.questions[qi];
+    if (qi >= questions.length) { miniSuccess(); return; }
+    const q = questions[qi];
     status.textContent = q.q;
     const old = miniWrap().querySelector('.q-zone');
     if (old) old.remove();
     const zone = document.createElement('div');
     zone.className = 'q-zone';
-    q.opts.forEach((t, i) => {
+    /* 显示顺序随机，但每项仍带着原始下标 i 用于判分 */
+    const order = shuffleList(q.opts.map((t, i) => ({ t, i })));
+    order.forEach(item => {
       const b = document.createElement('button');
       b.className = 'mini-btn';
-      b.textContent = t;
+      b.textContent = item.t;
       b.addEventListener('click', () => {
-        if (i === q.ans) {
+        if (item.i === q.ans) {
           status.textContent = q.right;
           sfx('pickup');
           qi++;

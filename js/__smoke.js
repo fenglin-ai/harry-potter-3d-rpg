@@ -703,5 +703,90 @@ ok(els['panelHelp'].style.display === 'none', 'Esc / 关闭按钮可收起说明
 ok(/title-keys/.test(htmlSrc), 'index.html 标题页内嵌快捷键列表');
 ok(/btnHelp/.test(htmlSrc) && /btnMap/.test(htmlSrc), 'HUD 有说明与小地图按钮');
 
+/* ---- 21. 背景音乐（WebAudio 合成图谱） ---- */
+section('背景音乐');
+/* 用一个记录型 AudioContext 桩：能检查「有没有真的把声音接到 destination 上」，
+ * 这类漏连音乐总线的 bug 单靠听是很难复现的。 */
+function param(v) {
+  const p = {
+    value: v, _max: v,
+    setValueAtTime(x) { p._max = Math.max(p._max, x); p.value = x; return p; },
+    linearRampToValueAtTime(x) { p._max = Math.max(p._max, x); p.value = x; return p; },
+    exponentialRampToValueAtTime(x) { p._max = Math.max(p._max, x); p.value = x; return p; },
+  };
+  return p;
+}
+const aNodes = [];
+function aNode(kind) {
+  const n = {
+    _kind: kind, _out: [],
+    gain: param(1), frequency: param(440), detune: param(0), delayTime: param(0),
+    type: '',
+    connect(x) { n._out.push(x); return x; },
+    disconnect() {},
+    start() {}, stop() {},
+  };
+  aNodes.push(n);
+  return n;
+}
+const aDest = { _isDest: true };
+const aCtx = {
+  state: 'running', sampleRate: 44100, currentTime: 0, destination: aDest,
+  createOscillator: () => aNode('osc'),
+  createGain: () => aNode('gain'),
+  createBiquadFilter: () => aNode('filter'),
+  createDelay: () => aNode('delay'),
+  createBufferSource: () => aNode('src'),
+  createBuffer: (ch, len) => ({ getChannelData: () => new Float32Array(len || 1) }),
+  resume: () => Promise.resolve(),
+};
+global.window.AudioContext = function () { return aCtx; };
+
+ok(BARS.length === 8, '和弦进行是 8 小节的循环');
+ok(BARS.every(b => b.mel.length === 3 && b.chord.length === 3), '每小节 3 拍、3 个旋律音与 3 个和弦音');
+ok(BEAT >= 0.35 && BEAT <= 0.55, '速度在孩子能接受的舒缓区间（BEAT=' + BEAT + '）');
+/* C 大调：主和弦应当是 C-E-G */
+const firstChord = BARS[0].chord.map(n => n % 12).sort((a, b) => a - b).join(',');
+ok(firstChord === '0,4,7', '开头是 C 大三和弦（明亮、适合儿童）');
+
+let musicErr = null;
+try {
+  ensureAudio();
+  musicBus = null;
+  startMusic();
+  for (let i = 0; i < 6; i++) { aCtx.currentTime += 1.3; pumpMusic(); }
+} catch (e) { musicErr = e; }
+ok(!musicErr, '音乐调度无异常' + (musicErr ? ': ' + musicErr.message : ''));
+
+const oscCount = aNodes.filter(n => n._kind === 'osc').length;
+ok(oscCount > 30, '确实生成了大量音符振荡器（' + oscCount + '）');
+const loud = aNodes.filter(n => n._kind === 'gain' && n.gain._max > 0.02);
+ok(loud.length > 10, '存在足够响的音符包络（' + loud.length + ' 个增益 > 0.02）');
+/* 从最响的增益节点出发，必须能一路连到 destination，否则就是静音 bug */
+function reachesDest(start) {
+  const seen = new Set();
+  const stack = [start];
+  while (stack.length) {
+    const n = stack.pop();
+    if (n === aDest) return true;
+    if (!n || seen.has(n)) continue;
+    seen.add(n);
+    for (const o of (n._out || [])) stack.push(o);
+  }
+  return false;
+}
+ok(loud.length > 0 && loud.some(n => reachesDest(n)), '音符能连到 destination（不是静音）');
+ok(!!musicBus && reachesDest(musicBus), '音乐总线接到了 destination');
+ok(!!musicEcho, '存在延迟回声节点（大厅感）');
+stopMusic();
+
+/* ---- 22. 答题选项随机 ---- */
+section('答题选项随机');
+ok(shuffleList([0, 1, 2, 3]).sort().join('') === '0123', '打乱后仍是同一组选项，不会丢项');
+let firsts = new Set();
+for (let i = 0; i < 60; i++) firsts.add(shuffleList([0, 1, 2, 3])[0]);
+ok(firsts.size >= 3, '正确项不会永远排在第一（首位出现过 ' + firsts.size + ' 种下标）');
+ok(shuffleList([]).length === 0 && shuffleList([7]).join('') === '7', '空数组 / 单元素不报错');
+
 console.log('\n结果：' + pass + ' 通过，' + fail + ' 失败');
 process.exit(fail ? 1 : 0);

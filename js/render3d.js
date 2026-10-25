@@ -35,7 +35,7 @@ const R3 = (function () {
   const TILE = 32;               // 瓦片尺寸（与 data.js 中的 TILE 一致）
   const FLOOR_T = 12;          // 地板厚度
   const FOV = 32;              // 相机垂直视场角
-  const PITCH_DEF = 52 * Math.PI / 180;   // 默认俯角
+  const PITCH_DEF = 45 * Math.PI / 180;   // 默认俯角（压低一点，能看到角色正面而不是只看头顶）
   const PITCH_MIN = 22 * Math.PI / 180;   // 拖拽可调到的最平视角
   const PITCH_MAX = 76 * Math.PI / 180;   // 拖拽可调到的最俯视角
   const ZOOM_MIN = 0.55, ZOOM_MAX = 1.9;  // 滚轮缩放范围
@@ -461,24 +461,49 @@ const R3 = (function () {
     return m;
   }
 
-  /* ---------------- 角色模型 ---------------- */
+  /* ---------------- 角色模型 ----------------
+   * 一套「卡通巫师」比例：头大身小（约 4 头身），五官独立建模，
+   * 长袍下摆收窄 + 露出裤腿和皮鞋 + 腰带收腰，避免看起来像裙子。 */
   const GEO = {
-    leg: new THREE.BoxGeometry(4.6, 13, 4.6),
-    arm: new THREE.BoxGeometry(3.6, 14, 3.6),
-    robe: new THREE.CylinderGeometry(7, 13, 25, 10, 1),
-    chest: new THREE.BoxGeometry(15, 9, 10),
-    head: new THREE.SphereGeometry(6.6, 12, 9),
-    hairCap: new THREE.SphereGeometry(7.1, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.58),
-    hairSpike: new THREE.ConeGeometry(2.6, 7, 5),
-    eye: new THREE.BoxGeometry(1.7, 1.7, 0.7),
-    glasses: new THREE.TorusGeometry(2.7, 0.42, 6, 12),
-    bridge: new THREE.BoxGeometry(2.2, 0.5, 0.5),
-    scarf: new THREE.CylinderGeometry(5.2, 5.6, 4, 10),
-    stripe: new THREE.CylinderGeometry(5.7, 6.0, 1.3, 10),
-    beard: new THREE.BoxGeometry(9, 12, 6),
+    leg: new THREE.BoxGeometry(4.8, 13, 4.8),
+    shoe: new THREE.BoxGeometry(5.2, 3.2, 7.6),
+    arm: new THREE.CylinderGeometry(2.7, 3.1, 13, 8),
+    hand: new THREE.SphereGeometry(2.4, 8, 6),
+    robe: new THREE.CylinderGeometry(6.6, 7.6, 16, 12),   // 下摆：14.5 ~ 30.5，外扩比原来小
+    belt: new THREE.CylinderGeometry(6.9, 6.9, 1.9, 12),
+    chest: new THREE.BoxGeometry(12.6, 9.6, 9.2),          // 上身：29.5 ~ 39.5
+    collar: new THREE.CylinderGeometry(5.0, 6.4, 3.2, 10),
+    head: new THREE.SphereGeometry(6.6, 14, 10),
+    /* 头发只做「锅盖」这一层：phiLength 收到 0.36π，发际线落在头顶往下 3.0 处，
+     * 留出额头；再低就成头盔了，眉毛和闪电疤都会没地方放。 */
+    hairCap: new THREE.SphereGeometry(7.05, 14, 9, 0, Math.PI * 2, 0, Math.PI * 0.36),
+    hairBack: new THREE.SphereGeometry(7.0, 12, 9),
+    hairSpike: new THREE.ConeGeometry(2.2, 4.4, 5),
+    /* 五官：眼眶（深色描边）+ 眼白 + 瞳孔 + 高光 + 眉毛 + 鼻子 + 嘴
+     * 描边是为了让眼睛在游戏远景里也能一眼看清，不然眼白会糊进肤色。
+     * 尺寸都压得比较小：之前眼白 2.4、眼镜环半径 2.8，近看像贴了两张白纸。 */
+    eyeSocket: new THREE.BoxGeometry(2.35, 2.5, 0.55),
+    eyeWhite: new THREE.BoxGeometry(1.85, 2.0, 0.55),
+    pupil: new THREE.BoxGeometry(0.92, 1.15, 0.55),
+    glint: new THREE.BoxGeometry(0.32, 0.32, 0.35),
+    brow: new THREE.BoxGeometry(2.45, 0.55, 0.55),
+    nose: new THREE.BoxGeometry(1.35, 1.5, 1.4),
+    mouth: new THREE.BoxGeometry(2.6, 0.7, 0.5),
+    /* 眼镜环半径必须小于眼间距（EX = 2.55），否则两个环叠成「8」字 */
+    glasses: new THREE.TorusGeometry(1.95, 0.3, 6, 16),
+    bridge: new THREE.BoxGeometry(1.1, 0.42, 0.42),
+    /* 前襟：用一小段圆弧（thetaLength ≈ 11°）贴着袍身走，比贴一块平板干净得多；
+     * 半径比袍身大 0.08 正好微微凸出，又不会在锥面上翘边。 */
+    placket: new THREE.CylinderGeometry(6.68, 7.68, 15.6, 4, 1, true, -0.1, 0.2),
+    lapel: new THREE.BoxGeometry(1.0, 9.4, 0.45),          // 上身那块是方的，前襟就用平板
+    ear: new THREE.BoxGeometry(1.1, 2.6, 1.9),
+    scarf: new THREE.CylinderGeometry(5.6, 6.0, 3, 10),
+    stripe: new THREE.CylinderGeometry(6.04, 6.04, 0.5, 10),
+    beard: new THREE.CylinderGeometry(4.2, 1.0, 10.5, 8),   // 上宽下窄，像把胡子
     hatCone: new THREE.ConeGeometry(9.5, 15, 10),
-    brim: new THREE.CylinderGeometry(11, 11, 1.2, 12),
+    brim: new THREE.CylinderGeometry(11, 11, 1.2, 14),
     wand: new THREE.CylinderGeometry(0.65, 0.85, 17, 6),
+    eye: new THREE.BoxGeometry(1.7, 1.7, 0.7),            // 兼容旧引用（三头犬）
   };
 
   function mat(color, opt) {
@@ -503,75 +528,180 @@ const R3 = (function () {
     return mesh;
   }
 
-  /* 人形：长袍 + 头 + 头发（+ 眼镜 / 围巾 / 胡子 / 帽子 / 魔杖） */
+  /* 关节：把旋转轴放在关节位置（髋 / 肩），走路时摆动更自然 */
+  function joint(parent, x, y, z) {
+    const p = new THREE.Group();
+    p.position.set(x, y, z);
+    parent.add(p);
+    return p;
+  }
+
+  /* 五官：眼眶 + 眼白 + 瞳孔 + 高光 + 眉毛 + 鼻子 + 嘴
+   * dir = +1 表示脸朝 +Z，-1 表示脸朝 -Z（人马用）
+   *
+   * 关键点：头部是个球，直接往球面上贴一块平面方块，方块边缘会一半陷进头里、
+   * 一半翘在外面，看起来像糊了张白纸。这里按眼位处球面法线把整只眼睛绕 Y 轴
+   * 转到切平面方向（±asin(EX/R)），方块就贴合球面了；再顺着法线方向叠出层次。 */
+  function addFace(parent, mats, hy, hz, dir, opts) {
+    const R = 6.6;            // 与 GEO.head 的半径保持一致
+    const EX = 2.55;          // 眼睛离中线的距离
+    const EY = -0.35;         // 眼睛相对头心的高度（略低于中线更卡通）
+    /* 球面上 (x, dy) 处的 z 坐标 */
+    const surf = (x, dy) => Math.sqrt(Math.max(1, R * R - x * x - dy * dy));
+    const tilt = (x) => Math.asin(Math.min(1, Math.abs(x) / R)) * Math.sign(x || 1);
+
+    const face = new THREE.Group();
+    face.position.set(0, hy, hz);
+    if (dir < 0) face.rotation.y = Math.PI;   // 人马的脸朝 -Z
+    parent.add(face);
+
+    for (const sx of [-1, 1]) {
+      const eye = new THREE.Group();
+      eye.position.set(sx * EX, EY, surf(EX, EY));
+      eye.rotation.y = tilt(sx * EX);
+      face.add(eye);
+
+      /* 局部 z 轴 = 该点的法线方向，所以 0 就是球面，正数往外凸 */
+      addMesh(eye, GEO.eyeSocket, mats.eyeLine, 0, 0, -0.16);
+      addMesh(eye, GEO.eyeWhite, mats.eyeW, 0, 0, -0.08);
+      addMesh(eye, GEO.pupil, mats.eyeB, 0, -0.05, 0);
+      /* 高光做成眼白外上角的小点：压在瞳孔上会把瞳孔啃掉一个角，看着像在斜视 */
+      addMesh(eye, GEO.glint, mats.eyeW, sx * 0.70, 0.78, 0.1);
+
+      if (opts.glasses) {
+        addMesh(eye, GEO.glasses, opts.glasses, 0, 0, 0.5);
+      }
+
+      const by = EY + 2.15;
+      const brow = addMesh(face, GEO.brow, mats.hair, sx * EX, by, surf(EX, by) - 0.1);
+      brow.rotation.y = tilt(sx * EX);
+      brow.rotation.z = -0.12 * sx;
+    }
+
+    if (opts.glasses) {
+      addMesh(face, GEO.bridge, opts.glasses, 0, EY + 0.1, surf(0, EY) + 0.02);
+    }
+
+    addMesh(face, GEO.nose, mats.nose, 0, EY - 1.15, surf(0, EY - 1.15) - 0.2);
+    addMesh(face, GEO.mouth, mats.mouth, 0, EY - 2.45, surf(0, EY - 2.45) - 0.12);
+  }
+
+  /* 人形：皮鞋 + 裤腿 + 长袍（收摆 + 腰带）+ 上身 + 围巾 + 头 + 五官 + 头发 */
   function makeHumanoid(o) {
     const s = o.scale || 1;
     const robe = new THREE.Color(o.robe || '#5a4a3a');
     const hair = new THREE.Color(o.hair || '#4a3520');
     const skin = new THREE.Color(o.skin || '#e8b98a');
     const ghost = !!o.ghost;
+    const oRobe = ghost ? 0.55 : 1;
 
     const g = new THREE.Group();
     const body = new THREE.Group();
     g.add(body);
 
-    const robeMat = mat(robe, { transparent: ghost, opacity: ghost ? 0.55 : 1 });
-    const darkMat = mat(robe.clone().multiplyScalar(0.7), { transparent: ghost, opacity: ghost ? 0.55 : 1 });
+    const robeMat = mat(robe, { transparent: ghost, opacity: oRobe });
+    const darkMat = mat(robe.clone().multiplyScalar(0.72), { transparent: ghost, opacity: oRobe });
+    const beltMat = mat(0x39281a, { transparent: ghost, opacity: oRobe });
+    /* 前襟 / 开衩用的深色：没有它整件袍子就是一个筒，容易看成连衣裙 */
+    const seamMat = mat(robe.clone().multiplyScalar(0.55), { transparent: ghost, opacity: oRobe });
     const skinMat = mat(skin, { flat: false, transparent: ghost, opacity: ghost ? 0.62 : 1 });
     const hairMat = mat(hair, { transparent: ghost, opacity: ghost ? 0.6 : 1 });
+    const shoeMat = mat(0x241a12, { transparent: ghost, opacity: oRobe });
 
-    const legL = addMesh(body, GEO.leg, darkMat, -3.6, 6.5, 0);
-    const legR = addMesh(body, GEO.leg, darkMat, 3.6, 6.5, 0);
-    addMesh(body, GEO.robe, robeMat, 0, 20, 0);
-    addMesh(body, GEO.chest, robeMat, 0, 34, 0);
-    const armL = addMesh(body, GEO.arm, robeMat, -8.6, 31, 0);
-    const armR = addMesh(body, GEO.arm, robeMat, 8.6, 31, 0);
+    const mats = {
+      hair: hairMat,
+      skin: mat(skin.clone().multiplyScalar(0.97), { flat: false }),
+      eyeW: mat(0xfffdf6, { flat: false, transparent: ghost, opacity: ghost ? 0.7 : 1 }),
+      eyeB: mat(0x1d1409, { flat: false, transparent: ghost, opacity: ghost ? 0.7 : 1 }),
+      eyeLine: mat(skin.clone().multiplyScalar(0.45), { flat: false, transparent: ghost, opacity: ghost ? 0.7 : 1 }),
+      nose: mat(skin.clone().multiplyScalar(0.86), { flat: false }),
+      mouth: mat(0x8c3a2e, { flat: false }),
+    };
 
-    /* 学院围巾 */
+    /* --- 腿与鞋：髋部 y=14 为轴，裤脚下面露出皮鞋 --- */
+    const legL = joint(body, -3.4, 14, 0);
+    addMesh(legL, GEO.leg, darkMat, 0, -6.5, 0);
+    addMesh(legL, GEO.shoe, shoeMat, 0, -12.2, 1.6);
+    const legR = joint(body, 3.4, 14, 0);
+    addMesh(legR, GEO.leg, darkMat, 0, -6.5, 0);
+    addMesh(legR, GEO.shoe, shoeMat, 0, -12.2, 1.6);
+
+    /* --- 长袍：下摆只到膝盖上方，配上腰带和前襟 ---
+     * z 方向压扁到 0.82：人的前后本来就比左右薄，圆筒不压会显得像裙子。 */
+    const robeMesh = addMesh(body, GEO.robe, robeMat, 0, 22.5, 0);
+    robeMesh.scale.z = 0.82;
+    const placketMesh = addMesh(body, GEO.placket, seamMat, 0, 22.5, 0);
+    placketMesh.scale.z = 0.82;
+
+    const beltMesh = addMesh(body, GEO.belt, beltMat, 0, 30.4, 0);
+    beltMesh.scale.z = 0.84;
+
+    addMesh(body, GEO.chest, robeMat, 0, 34.5, 0);
+    addMesh(body, GEO.lapel, seamMat, 0, 34.5, 4.62);
+    const collarMesh = addMesh(body, GEO.collar, robeMat, 0, 39.8, 0);
+    collarMesh.scale.z = 0.8;
+
+    /* --- 手臂：肩部 y=37.5 为轴，末端加手。袖子用暗一档的色，和躯干分开 --- */
+    const armL = joint(body, -7.6, 37.5, 0);
+    addMesh(armL, GEO.arm, darkMat, 0, -6.5, 0);
+    addMesh(armL, GEO.hand, skinMat, 0, -13.9, 0);
+    const armR = joint(body, 7.6, 37.5, 0);
+    addMesh(armR, GEO.arm, darkMat, 0, -6.5, 0);
+    addMesh(armR, GEO.hand, skinMat, 0, -13.9, 0);
+
+    /* 学院围巾：套在袍领外面一圈，金条纹压在围巾下沿，别单独立在胸前当地毯 */
     if (o.scarf) {
-      addMesh(body, GEO.scarf, mat(o.scarf), 0, 38.5, 0);
-      addMesh(body, GEO.stripe, mat(o.scarfStripe || 0xc9a227), 0, 37.2, 0);
+      addMesh(body, GEO.scarf, mat(o.scarf), 0, 40.6, 0).scale.z = 0.85;
+      addMesh(body, GEO.stripe, mat(o.scarfStripe || 0xc9a227), 0, 39.3, 0).scale.z = 0.85;
     }
 
-    addMesh(body, GEO.head, skinMat, 0, 44, 0);
-    addMesh(body, GEO.hairCap, hairMat, 0, 44.6, 0);
+    /* --- 头 --- */
+    const HY = 46.2;
+    addMesh(body, GEO.head, skinMat, 0, HY, 0);
+    /* 后脑勺的头发块：前后压到 0.8、往后挪，正面留出 2 个单位的脸，
+     * 否则从侧面看整颗头就是一团头发。 */
+    const hb = addMesh(body, GEO.hairBack, hairMat, 0, HY + 0.1, -0.9);
+    hb.scale.set(1.03, 1.0, 0.8);
+    addMesh(body, GEO.hairCap, hairMat, 0, HY + 0.6, 0);
 
-    /* 眼睛 */
-    const eyeMat = mat(0x241a10, { flat: false });
-    addMesh(body, GEO.eye, eyeMat, -2.5, 44.5, 6.1);
-    addMesh(body, GEO.eye, eyeMat, 2.5, 44.5, 6.1);
-
-    if (o.glasses) {
-      const gm = mat(0xb9922f, { metalness: 0.5, roughness: 0.4, flat: false });
-      addMesh(body, GEO.glasses, gm, -2.5, 44.5, 6.3);
-      addMesh(body, GEO.glasses, gm, 2.5, 44.5, 6.3);
-      addMesh(body, GEO.bridge, gm, 0, 44.5, 6.3);
-    }
+    /* 眼镜交给 addFace：镜片挂在眼睛上，才会跟眼位一起贴合球面 */
+    const gm = o.glasses ? mat(0xb9922f, { metalness: 0.5, roughness: 0.4, flat: false }) : null;
+    addFace(body, mats, HY, 0, 1, { glasses: gm });
 
     if (o.harry) {
       /* 乱糟糟的头发 + 闪电疤 */
-      const s1 = addMesh(body, GEO.hairSpike, hairMat, -3.2, 49.5, 2.2); s1.rotation.z = 0.5;
-      const s2 = addMesh(body, GEO.hairSpike, hairMat, 3.4, 49.5, 1.6); s2.rotation.z = -0.45;
-      const scar = addMesh(body, new THREE.BoxGeometry(0.9, 4.4, 0.7), mat(0xc0392b, { flat: false }), 3.4, 47.5, 5.6);
-      scar.rotation.z = -0.28;
+      const spikes = [[-3.6, 6.5, 2.6, 0.62, 0], [3.4, 6.6, 2.0, -0.58, 0], [0.2, 6.9, -1.6, 0.1, -0.42], [-1.2, 6.9, 3.4, 0.28, 0.3]];
+      for (const [sx, sy, sz, rz, rx] of spikes) {
+        const sp = addMesh(body, GEO.hairSpike, hairMat, sx, HY + sy, sz);
+        sp.rotation.z = rz; sp.rotation.x = rx;
+      }
+      /* 疤要贴着额头球面，而且整块落在眉毛和发际线之间：
+       * 之前给个 (3.5, HY+3.6, 5.2) 的长条，顶端从颅骨和头发之间戳出去，像根红天线。 */
+      const sy = 2.85;
+      const sx0 = 2.7;
+      const sz = Math.sqrt(Math.max(1, 6.6 * 6.6 - sx0 * sx0 - sy * sy));
+      const scar = addMesh(body, new THREE.BoxGeometry(0.5, 1.3, 0.4), mat(0xc0392b, { flat: false }), sx0, HY + sy, sz - 0.04);
+      scar.rotation.y = Math.asin(sx0 / 6.6);
+      scar.rotation.z = 0.34;
     }
     if (o.beard) {
-      addMesh(body, GEO.beard, hairMat, 0, 37.5, 3.2);
+      addMesh(body, GEO.beard, hairMat, 0, 33.6, 3.0);
     }
     if (o.hat !== undefined && o.hat !== null) {
-      addMesh(body, GEO.hatCone, mat(o.hat), 0, 53, 0);
-      addMesh(body, GEO.brim, mat(o.hat), 0, 46.5, 0);
+      addMesh(body, GEO.brim, mat(o.hat), 0, 53.7, 0);
+      addMesh(body, GEO.hatCone, mat(o.hat), 0, 60.9, 0);
     }
 
     let wandMesh = null;
     if (o.wand) {
-      wandMesh = addMesh(body, GEO.wand, mat(0x8a6a3a, { flat: false }), 10.5, 34, 3.5);
-      wandMesh.rotation.z = -0.42;
-      wandMesh.rotation.x = -0.18;
+      wandMesh = addMesh(body, GEO.wand, mat(0x8a6a3a, { flat: false }), 9.6, 28.5, 3.2);
+      wandMesh.rotation.z = -0.38;
+      wandMesh.rotation.x = -0.16;
     }
 
     g.scale.setScalar(s);
-    return { group: g, body, parts: { legL, legR, armL, armR }, wandMesh, height: HUMAN_H * s, ghost };
+    const topY = (o.hat !== undefined && o.hat !== null) ? 68 : 56;
+    return { group: g, body, parts: { legL, legR, armL, armR }, wandMesh, height: topY * s, ghost };
   }
 
   /* 人马（火雷恩） */
@@ -596,11 +726,29 @@ const R3 = (function () {
     tail.rotation.x = -0.9;
     // 人的上半身
     addMesh(body, new THREE.BoxGeometry(11, 16, 9), mat(coat.clone().multiplyScalar(1.05)), 0, 40, -11);
-    addMesh(body, GEO.head, mat(skin, { flat: false }), 0, 52, -11);
-    addMesh(body, GEO.hairCap, mat(hair), 0, 52.6, -11);
-    const eyeMat = mat(0x241a10, { flat: false });
-    addMesh(body, GEO.eye, eyeMat, -2.5, 52.4, -5.2);
-    addMesh(body, GEO.eye, eyeMat, 2.5, 52.4, -5.2);
+    const skinMat = mat(skin, { flat: false });
+    const hairMat = mat(hair);
+    const CY = 52;
+    addMesh(body, GEO.head, skinMat, 0, CY, -11);
+    /* 后脑发块要往「背对脸」的方向挪：人马的脸在 -Z，所以得往 +Z 挪（-10.1），
+     * 原来写成 -11.9 是往脸那边挪，整颗头被头发罩住，五官全看不见。 */
+    const hb = addMesh(body, GEO.hairBack, hairMat, 0, CY + 0.1, -10.1);
+    hb.scale.set(1.03, 1.0, 0.8);
+    addMesh(body, GEO.hairCap, hairMat, 0, CY + 0.6, -11);
+    /* 人马的脸朝 -Z，五官同样独立建模 */
+    addFace(body, {
+      hair: hairMat,
+      skin: mat(skin.clone().multiplyScalar(0.97), { flat: false }),
+      eyeW: mat(0xfffdf6, { flat: false }),
+      eyeB: mat(0x1d1409, { flat: false }),
+      eyeLine: mat(skin.clone().multiplyScalar(0.45), { flat: false }),
+      nose: mat(skin.clone().multiplyScalar(0.86), { flat: false }),
+      mouth: mat(0x8c3a2e, { flat: false }),
+    }, CY, -11, -1, {});
+
+    /* 这只模型是按「前方 = -Z」建的（马头/人身在 -11，马尾在 +15），
+     * 但所有角色都用 faceYaw() 按「前方 = +Z」旋转，不翻过来人马会一直背对玩家。 */
+    body.rotation.y = Math.PI;
 
     g.scale.setScalar(s);
     return { group: g, body, parts: {}, height: HUMAN_H * s * 1.15 };
@@ -619,17 +767,26 @@ const R3 = (function () {
     const torso = addMesh(body, new THREE.CapsuleGeometry(11, 20, 4, 10), furMat, 0, 24, 0);
     torso.rotation.z = Math.PI / 2;
     for (const dx of [-7, 7]) for (const dz of [-8, 8]) addMesh(body, new THREE.BoxGeometry(5, 18, 5), darkMat, dx, 9, dz);
-    addMesh(body, new THREE.ConeGeometry(4, 14, 6), darkMat, 0, 33, 14).rotation.x = 1.2;
+    /* 尾巴朝后（-Z）。原来放在 +15 且朝前伸，正好戳在脸前面 */
+    addMesh(body, new THREE.ConeGeometry(4, 14, 6), darkMat, 0, 30, -15).rotation.x = -1.45;
 
     const heads = [];
     const offsets = [[-8, 8], [8, 8], [0, 10]];
     for (const [hx, hz] of offsets) {
       const hg = new THREE.Group();
-      hg.position.set(hx, 38, -12 + hz * 0.2);
-      addMesh(hg, new THREE.SphereGeometry(8, 10, 8), furMat, 0, 0, 0);
+      /* 三颗头长在马身前端（+Z），和 faceYaw「前方 = +Z」的约定保持一致 */
+      hg.position.set(hx, 38, 10 - hz * 0.2);
+      addMesh(hg, new THREE.SphereGeometry(8, 12, 9), furMat, 0, 0, 0);
       addMesh(hg, new THREE.SphereGeometry(3.4, 8, 6), mat(fur.clone().multiplyScalar(1.15)), 0, -2.5, 7);
-      const e = addMesh(hg, GEO.eye, mat(0xd23b2b, { flat: false }), -3, 1.5, 6.6);
-      const e2 = addMesh(hg, GEO.eye, mat(0xd23b2b, { flat: false }), 3, 1.5, 6.6);
+      /* 三只头都是红眼睛：眼白 + 红瞳，比原来的小方块明显得多 */
+      const ew = mat(0xf2e6d8, { flat: false });
+      const ep = mat(0xd23b2b, { flat: false, emissive: 0x3a0a06 });
+      addMesh(hg, GEO.eyeWhite, ew, -3, 1.6, 7.05);
+      addMesh(hg, GEO.eyeWhite, ew, 3, 1.6, 7.05);
+      const e = addMesh(hg, GEO.pupil, ep, -3, 1.5, 7.3);
+      const e2 = addMesh(hg, GEO.pupil, ep, 3, 1.5, 7.3);
+      /* 红瞳占满眼白才凶，按狗的尺寸单独放大 */
+      e.scale.set(1.35, 1.3, 1); e2.scale.set(1.35, 1.3, 1);
       heads.push(hg);
       body.add(hg);
     }
@@ -890,7 +1047,7 @@ const R3 = (function () {
   function recomputeDist() {
     const aspect = camera.aspect || 1.6;
     /* 目标：横向大约能看到 13 格；窄屏时适当拉远，但不超过上限 */
-    const halfW = 208;
+    const halfW = 178;
     const d = halfW / (Math.tan(FOV * Math.PI / 360) * Math.max(aspect, 0.85));
     dist = Math.max(360, Math.min(820, d)) * zoom;
   }
@@ -1009,7 +1166,7 @@ const R3 = (function () {
     if (playerRig) disposeNode(playerRig.group);
     playerRig = makeHumanoid({
       /* 略微提亮长袍：3D 逆光下深褐色会糊成一团黑 */
-      robe: '#63492f', hair: '#2e1c0d', skin: '#f0c496',
+      robe: '#7a5a38', hair: '#3d2713', skin: '#f2c9a4',
       glasses: true, harry: true, scarf: 0x9e1f1f, scarfStripe: 0xd8b13a,
       wand: true, scale: 1.15,
     });
@@ -1232,6 +1389,9 @@ const R3 = (function () {
         scene.traverse(o => { if (o.isMesh) meshes++; });
         return { meshes: meshes, npcs: npcRigs.length, props: propRigs.length, doors: doorRigs.length };
       },
+      /* 造型调试用：单独产出一个角色模型，供预览页 / 截图工具使用 */
+      makeHumanoid, makeCentaur, makeDog,
+      playerRig() { return playerRig; },
     },
   };
 })();
